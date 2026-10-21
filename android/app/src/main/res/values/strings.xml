@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">白泽写作</string>
+    <string name="title_activity_main">白泽写作</string>
+    <string name="package_name">com.baize.writing</string>
+    <string name="custom_url_scheme">com.baize.writing</string>
+</resources>

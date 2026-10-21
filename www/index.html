@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1a2e">
+  <title>白泽写作</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- ===== 文章列表页 ===== -->
+  <div id="page-list" class="page active">
+    <header class="topbar">
+      <h1>白泽写作</h1>
+      <button id="btn-theme" class="icon-btn" title="夜间模式">🌙</button>
+    </header>
+
+    <div class="toolbar">
+      <input id="search-input" type="text" placeholder="搜索标题或正文…" autocomplete="off">
+      <select id="group-filter">
+        <option value="">全部分组</option>
+      </select>
+    </div>
+
+    <div id="article-list" class="article-list"></div>
+
+    <button id="btn-new" class="fab" title="新建文章">＋</button>
+  </div>
+
+  <!-- ===== 编辑页 ===== -->
+  <div id="page-editor" class="page">
+    <header class="topbar">
+      <button id="btn-back" class="icon-btn" title="返回">←</button>
+      <input id="title-input" type="text" placeholder="无标题" autocomplete="off">
+      <button id="btn-history" class="icon-btn" title="历史版本">🕘</button>
+      <button id="btn-export" class="icon-btn" title="导出">📤</button>
+    </header>
+
+    <div id="editor-meta" class="editor-meta">
+      <span id="word-count">0 字</span>
+      <span id="save-status">已保存</span>
+    </div>
+
+    <textarea id="content-input" placeholder="开始写作… 点击麦克风可语音输入" spellcheck="false"></textarea>
+
+    <div class="editor-footer">
+      <button id="btn-voice" class="voice-btn" title="语音输入">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor">
+          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+        </svg>
+      </button>
+      <div id="voice-status" class="voice-status"></div>
+    </div>
+
+    <!-- 语音识别中遮罩 -->
+    <div id="voice-overlay" class="voice-overlay hidden">
+      <div class="voice-card">
+        <div class="voice-pulse"><span></span><span></span><span></span></div>
+        <div class="voice-hint">正在聆听…说出内容将自动插入光标处</div>
+        <div id="voice-partial" class="voice-partial"></div>
+        <button id="btn-voice-stop" class="voice-stop">完成</button>
+      </div>
+    </div>
+
+    <!-- 历史版本抽屉 -->
+    <div id="history-drawer" class="drawer hidden">
+      <div class="drawer-mask" id="history-mask"></div>
+      <div class="drawer-panel">
+        <div class="drawer-header">
+          <h2>历史版本</h2>
+          <button id="btn-history-close" class="icon-btn">✕</button>
+        </div>
+        <div id="history-list" class="history-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="js/storage.js"></script>
+  <script src="js/voice.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
