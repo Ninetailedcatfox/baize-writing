@@ -6,6 +6,29 @@
   <meta name="theme-color" content="#f5f6fa">
   <title>白泽写作</title>
   <link rel="stylesheet" href="css/style.css">
+  <script>
+    /* 启动异常兜底:避免出现"一片白板"看不到任何线索 */
+    (function () {
+      var shown = false;
+      function report(msg, extra) {
+        if (shown) return;
+        shown = true;
+        var box = document.createElement('div');
+        box.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#fff;color:#c00;' +
+          'padding:24px;font:13px/1.7 -apple-system,monospace;white-space:pre-wrap;overflow:auto';
+        box.textContent = '白泽写作启动失败\n\n' + msg + (extra ? '\n\n' + extra : '') +
+          '\n\n请截图发给开发者。';
+        document.body.appendChild(box);
+      }
+      window.addEventListener('error', function (e) {
+        report((e.message || 'unknown error') + '\n' + (e.filename || '') + ':' + (e.lineno || ''));
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e.reason;
+        report('Promise 异常: ' + (r && (r.stack || r.message) ? (r.stack || r.message) : String(r)));
+      });
+    })();
+  </script>
 </head>
 <body>
 
@@ -59,7 +82,7 @@
     <span id="ed-status" class="saved">已保存</span>
   </div>
   <div id="voice-hint" class="voice-hint hidden">
-    <span>🎤 点键盘上的麦克风键说话,说完文字自动进来</span>
+    <span id="voice-hint-text">🎤 点键盘上的麦克风键说话,说完文字自动进来</span>
     <button id="voice-hint-close">知道了</button>
   </div>
   <textarea id="ed-text" class="ed-text" placeholder="开始写作…" spellcheck="false"></textarea>

@@ -479,12 +479,24 @@
       return;
     }
 
-    // 输入法语音(默认)
-    window.Voice.startIme(() => {
-      $('voice-hint').classList.remove('hidden');
-      clearTimeout(window._vhTimer);
-      window._vhTimer = setTimeout(() => $('voice-hint').classList.add('hidden'), 12000);
-    });
+    // 输入法语音(默认):聚焦 + 强制弹键盘,再按诊断结果给准确提示
+    const ok = await window.Voice.startIme();
+    if (!ok) { toast('请先打开一篇文章'); return; }
+
+    const hintText = $('voice-hint-text');
+    const diag = await window.Voice.diagnose();
+    if (diag) {
+      if (diag.inputMethodHasOwnVoice) {
+        hintText.textContent = '🎤 你的输入法自带语音，点键盘上的麦克风键说话，说完文字自动进正文';
+      } else if (!diag.systemRecognition) {
+        hintText.textContent = '⚠️ 这台手机的系统语音服务已停用。请装「搜狗输入法」或「讯飞输入法」，用它们键盘上的麦克风';
+      } else {
+        hintText.textContent = '🎤 点键盘上的麦克风键说话，说完文字自动进正文';
+      }
+    }
+    $('voice-hint').classList.remove('hidden');
+    clearTimeout(window._vhTimer);
+    window._vhTimer = setTimeout(() => $('voice-hint').classList.add('hidden'), 15000);
   });
   $('voice-hint-close').addEventListener('click', () => $('voice-hint').classList.add('hidden'));
 
@@ -711,6 +723,10 @@
             <option value="system" ${s.voiceMode === 'system' ? 'selected' : ''}>系统识别</option>
           </select>
         </div>
+        <div class="set-row">
+          <span class="sr-label">环境检测<span class="sr-sub">查这台手机到底能不能语音</span></span>
+          <button id="st-voice-diag" class="tool-btn" style="padding:6px 14px">检测</button>
+        </div>
       </div>
 
       <div class="set-group">
@@ -753,6 +769,25 @@
     $('st-lh').addEventListener('change', e => { DB.setSetting('lineHeight', +e.target.value); applyEditorStyle(); renderSettings(); });
     $('st-bg').addEventListener('change', e => { DB.setSetting('bg', e.target.value); applyEditorStyle(); });
     $('st-voice').addEventListener('change', e => { DB.setSetting('voiceMode', e.target.value); toast('已切换语音方式'); });
+    $('st-voice-diag').addEventListener('click', async () => {
+      const d = await window.Voice.diagnose();
+      if (!d) { toast('浏览器里没法检测，装 APK 后可用'); return; }
+      const lines = [
+        '系统语音服务：' + (d.systemRecognition ? '可用' : '不可用（已停用）'),
+        '当前输入法：' + (d.inputMethod || '未知'),
+        '输入法自带语音：' + (d.inputMethodHasOwnVoice ? '是' : '否'),
+      ];
+      let advice;
+      if (d.inputMethodHasOwnVoice) advice = '✅ 你的输入法自带语音，直接用输入法麦克风即可';
+      else if (!d.systemRecognition) advice = '⚠️ 系统语音被停用，且输入法没有自己的语音。装「搜狗输入法」或「讯飞输入法」就能用';
+      else advice = '✅ 系统语音可用，两种方式都能试';
+      openSheet('语音环境检测', `
+        <div style="padding:16px 18px;line-height:2;font-size:14px">
+          ${lines.map(l => `<div>${l}</div>`).join('')}
+          <div style="margin-top:12px;padding:12px;border-radius:10px;background:var(--bg-soft,#f4f4f5)">${advice}</div>
+        </div>
+      `);
+    });
     $('st-auto').addEventListener('click', () => {
       DB.setSetting('autoUpdate', !DB.settings().autoUpdate); renderSettings();
     });

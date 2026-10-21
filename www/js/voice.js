@@ -1,8 +1,11 @@
-/* ===== 语音输入模块 v2 =====
- * 两条路线:
- *  A) 输入法语音(默认,最稳):聚焦正文框 + 弹起输入法,用户点键盘上的麦克风键说话。
- *     识别由输入法(搜狗/讯飞/百度)完成,质量最好,无需任何权限。
- *  B) 系统识别(备用):调 Android RecognizerIntent,连续听写。需要设备装了识别服务。
+/* ===== 语音输入模块 v2.1 =====
+ * 路线优先级:
+ *  A) 输入法语音(默认):聚焦正文 + 原生强制弹出输入法,用户按键盘麦克风说话。
+ *     识别由输入法自己完成(搜狗/讯飞走自家云端),不依赖系统语音服务。
+ *  B) 系统识别(备用):RecognizerIntent。设备语音服务被停用时不可用。
+ *
+ * v2.1 关键修复:WebView 里 textarea.focus() 弹不出软键盘,必须调原生
+ * InputMethodManager.showSoftInput,否则"输入法语音"是空操作。
  */
 (function () {
   const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
@@ -10,27 +13,41 @@
 
   let session = null; // { onResult, onEnd, active }
 
-  function focusEditorAndShowKeyboard() {
+  function focusEditor() {
     const ta = document.getElementById('ed-text');
-    if (!ta) return false;
+    if (!ta) return null;
     ta.focus();
-    // 部分 WebView 需要显式触发,再点一次确保光标可见
-    setTimeout(() => {
-      try {
-        ta.click();
-        const len = ta.value.length;
-        ta.setSelectionRange(len, len);
-      } catch (e) {}
-    }, 60);
-    return true;
+    try {
+      const len = ta.value.length;
+      ta.setSelectionRange(len, len);
+    } catch (e) {}
+    return ta;
   }
 
   window.Voice = {
-    /** 输入法语音:只负责把键盘叫出来 + 给引导 */
-    startIme(onHint) {
-      const ok = focusEditorAndShowKeyboard();
-      if (ok && onHint) onHint();
-      return ok;
+    /** 输入法语音:聚焦正文 + 强制弹键盘 + 引导提示 */
+    async startIme(onHint) {
+      const ta = focusEditor();
+      if (!ta) return false;
+
+      const p = nativePlugin();
+      if (p && p.showKeyboard) {
+        try { await p.showKeyboard(); } catch (e) {}
+      }
+      // WebView 有时需要延迟再 focus 一次
+      setTimeout(() => {
+        try { ta.focus(); } catch (e) {}
+      }, 120);
+
+      if (onHint) onHint();
+      return true;
+    },
+
+    /** 探测本机可用方案 */
+    async diagnose() {
+      const p = nativePlugin();
+      if (!p || !p.diagnose) return null;
+      try { return await p.diagnose(); } catch (e) { return null; }
     },
 
     /** 系统识别(备用) */
@@ -45,7 +62,6 @@
           if (!session || !session.active) return;
           got = true;
           if (d && d.text) onResult(d.text);
-          // 连续听写:稍后再发一轮
           if (session && session.active) {
             setTimeout(() => { if (session && session.active) launch(); }, 350);
           }
@@ -54,7 +70,6 @@
           if (!session || !session.active) return;
           const code = d && d.code;
           if (code === 'canceled') { this.stopSystem(); return; }
-          // 其他错误:连续模式继续试;首轮就失败则结束
           if (!got) {
             this.stopSystem();
             if (onEnd) onEnd({ error: code || 'unknown' });
