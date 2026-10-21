@@ -5,4 +5,4 @@ android/build/
 android/local.properties
 *.iml
 .idea/
-apk_url.txt
+apk_url*.txt

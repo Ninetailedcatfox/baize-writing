@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>几何诊断</title>
+<style>body{margin:0;font:13px monospace}iframe{width:390px;height:844px;border:0;position:absolute;left:-9999px}</style>
+</head>
+<body>
+<iframe id="f" src="../index.html"></iframe>
+<pre id="out">pending</pre>
+<script>
+  function probe() {
+    var d = document.getElementById('f').contentDocument;
+    var el = d.getElementById('btn-new-book');
+    if (!el) { document.getElementById('out').textContent = 'FAB 元素不存在'; return; }
+    var r = el.getBoundingClientRect();
+    var cs = document.getElementById('f').contentWindow.getComputedStyle(el);
+    document.getElementById('out').textContent = JSON.stringify({
+      rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+      position: cs.position,
+      bottom: cs.bottom,
+      right: cs.right,
+      display: cs.display,
+      visibility: cs.visibility,
+      opacity: cs.opacity,
+      zIndex: cs.zIndex,
+      background: cs.backgroundImage.slice(0, 70),
+      parentPosition: getComputedStyle(el.parentElement).position,
+      innerH: document.getElementById('f').contentWindow.innerHeight,
+      docH: d.documentElement.clientHeight
+    }, null, 2);
+  }
+  setTimeout(probe, 1200);
+</script>
+</body>
+</html>

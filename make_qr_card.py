@@ -6,6 +6,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 URL = open(sys.argv[1] if len(sys.argv) > 1 else "apk_url_v2.txt", encoding="utf-8").read().strip()
 OUT = sys.argv[2] if len(sys.argv) > 2 else "download-card-v2.png"
+TITLE = sys.argv[3] if len(sys.argv) > 3 else "白泽写作"
 
 # 二维码
 qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=6, border=2)
@@ -33,7 +34,7 @@ def center(text, y, font, fill):
 
 
 # 顶部标题区
-center("白泽写作 v2.0.0", PAD - 8, F_TITLE, "#111111")
+center(TITLE, PAD - 8, F_TITLE, "#111111")
 center("书架 · 卷 · 章节   输入法语音   写作统计", PAD + 62, F_SUB, "#666666")
 
 # 二维码
