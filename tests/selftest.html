@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>db selftest</title></head>
+<body><pre id="out">running…</pre>
+<script src="../www/js/db.js"></script>
+<script>
+const R = [];
+const ok = (name, cond, extra) => R.push((cond ? 'PASS ' : 'FAIL ') + name + (extra !== undefined ? ' :: ' + extra : ''));
+
+localStorage.clear();
+const DB = window.DB;
+
+// 分组
+const g = DB.addGroup('玄幻');
+ok('addGroup', DB.groups().length === 1 && DB.groups()[0].name === '玄幻');
+
+// 书籍
+const b = DB.addBook('测试书', g.id);
+ok('addBook', DB.books(g.id).length === 1 && DB.get('book', b.id).name === '测试书');
+
+// 卷
+const v = DB.addVolume(b.id, '第一卷');
+ok('addVolume', DB.volumes(b.id).length === 1);
+
+// 章节
+const a1 = DB.addArticle(b.id, v.id, '第一章');
+const a2 = DB.addArticle(b.id, v.id, '第二章');
+ok('addArticle', DB.articles(b.id).length === 2);
+ok('article seq', DB.articles(b.id)[0].seq <= DB.articles(b.id)[1].seq);
+
+// 保存内容 + 字数
+const text = '这是一段中文测试文字，hello world 123';
+const saved = DB.saveArticle(a1.id, text);
+ok('countWords 中文+英文', DB.countWords(text) === 10 + 3, 'got=' + DB.countWords(text));
+ok('saveArticle wordsNumText', saved.wordsNumText === 13, 'got=' + saved.wordsNumText);
+ok('saveArticle brief', (saved.brief || '').length > 0);
+
+// 增量统计
+const st = DB.stats()[0];
+ok('stat today words', st && st.wordsTxtInput === 13, 'got=' + (st && st.wordsTxtInput));
+
+// 减少字数不应扣统计
+DB.saveArticle(a1.id, '短');
+const st2 = DB.stats()[0];
+ok('stat no negative on shrink', st2.wordsTxtInput === 13, 'got=' + st2.wordsTxtInput);
+
+// 历史版本(第一次 push 应成功,立刻第二次应被节流)
+DB.saveArticle(a1.id, text + ' 追加内容');
+const h1 = DB.pushHistory(DB.get('article', a1.id));
+const h2 = DB.pushHistory(DB.get('article', a1.id));
+ok('history first push ok', h1 === true);
+ok('history throttle', h2 === false);
+ok('history list', DB.history(a1.id).length === 1);
+
+// 回收站:删章节 → 恢复
+const before = DB.articles(b.id).length;
+DB.trashArticle(a2.id);
+ok('trash removes article', DB.articles(b.id).length === before - 1);
+ok('recycle has item', DB.recycle().length === 1);
+const rid = DB.recycle()[0].id;
+DB.restore(rid);
+ok('restore clears recycle', DB.recycle().length === 0);
+
+// 删书 → 标记 flag
+DB.trashBook(b.id);
+ok('trashBook flags', DB.get('book', b.id).flag === 1);
+ok('books() excludes flagged', DB.books(g.id).filter(x => !x.flag).length === 0);
+
+// 总字数 / 连续天数
+ok('totalWords number', typeof DB.totalWords() === 'number');
+ok('streak >= 1', DB.streak() >= 1, 'got=' + DB.streak());
+
+// 设置读写
+DB.setSetting('fontSize', 20);
+ok('settings persist', DB.settings().fontSize === 20);
+ok('settings defaults', DB.settings().voiceMode === 'ime');
+
+// 时间格式
+ok('todayKey format', /^\d{4}-\d{2}-\d{2}$/.test(DB.todayKey()), DB.todayKey());
+
+const fails = R.filter(x => x.startsWith('FAIL'));
+document.getElementById('out').textContent =
+  R.join('\n') + '\n\nTOTAL ' + R.length + ' / FAIL ' + fails.length;
+</script>
+</body></html>
