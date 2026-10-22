@@ -147,6 +147,26 @@ function ok(name, cond, extra) {
   ok('取消后书架回来', await ev("!document.getElementById('book-grid').classList.contains('hidden')"));
   ok('取消后继续写作卡片回来', await ev("!document.getElementById('resume-card').classList.contains('hidden')"));
 
+  // ---- 长按不应顺带触发点击 ----
+  await ev(`(function(){
+    const card = document.querySelector('.book-card');
+    const mk = t => card.dispatchEvent(new TouchEvent(t, { bubbles: true }));
+    mk('touchstart');
+    return 1;
+  })()`);
+  await wait(650);
+  await ev(`(function(){
+    const card = document.querySelector('.book-card');
+    card.dispatchEvent(new TouchEvent('touchend', { bubbles: true }));
+    card.click();
+    return 1;
+  })()`);
+  await wait(400);
+  ok('长按弹出书籍菜单', await ev("!document.getElementById('sheet').classList.contains('hidden')"));
+  ok('长按后没有顺带进入目录', await ev("document.getElementById('view-shelf').classList.contains('active')"));
+  await ev("document.querySelector('#sheet-mask').click()");
+  await wait(300);
+
   // ---- 沉浸模式 ----
   await ev("document.querySelector('.book-card').click()");
   await wait(600);

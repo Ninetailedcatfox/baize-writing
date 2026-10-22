@@ -74,16 +74,28 @@
     return h % COVER_COLORS.length;
   }
 
-  /* 长按 */
+  /* 长按
+   * 注意:长按之后 touchend 仍会派发 click,如果不管,长按打开菜单的同时
+   * 点击处理器也会跑(书架会长按后直接跳进目录,菜单白开)。
+   * 所以在捕获阶段把紧跟着的那次 click 吃掉。
+   */
   function bindLongPress(el, fn) {
-    let timer = null, moved = false;
+    let timer = null, moved = false, fired = false;
     el.addEventListener('touchstart', e => {
-      moved = false;
-      timer = setTimeout(() => { if (!moved) { fn(e); if (navigator.vibrate) navigator.vibrate(12); } }, 480);
+      moved = false; fired = false;
+      timer = setTimeout(() => {
+        if (moved) return;
+        fired = true;
+        fn(e);
+        if (navigator.vibrate) navigator.vibrate(12);
+      }, 480);
     }, { passive: true });
     el.addEventListener('touchmove', () => { moved = true; clearTimeout(timer); }, { passive: true });
     el.addEventListener('touchend', () => clearTimeout(timer));
-    el.addEventListener('touchcancel', () => clearTimeout(timer));
+    el.addEventListener('touchcancel', () => { clearTimeout(timer); fired = false; });
+    el.addEventListener('click', e => {
+      if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; }
+    }, true);
     el.addEventListener('contextmenu', e => { e.preventDefault(); fn(e); });
   }
 
