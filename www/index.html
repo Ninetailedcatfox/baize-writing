@@ -36,6 +36,9 @@
 <div id="view-shelf" class="view active">
   <header class="topbar">
     <h1>书架</h1>
+    <button class="icon-btn" id="btn-search" title="搜索">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
+    </button>
     <button class="icon-btn" id="btn-tools" title="创作工具">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9l-4.3 3.9 1.2 5.7L12 15.7 7.6 18.6l1.2-5.7L4.5 9l5.6-1.4L12 2z"/></svg>
     </button>
@@ -47,8 +50,16 @@
     </button>
   </header>
 
+  <div class="search-wrap hidden" id="search-wrap">
+    <svg class="sw-ico" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
+    <input id="search-input" type="search" placeholder="搜书名、章节名、正文" autocomplete="off">
+    <button id="search-cancel" class="sw-cancel">取消</button>
+  </div>
+
   <div class="group-bar" id="group-bar"></div>
   <div class="shelf-scroll">
+    <div id="resume-card" class="resume-card hidden"></div>
+    <div id="search-result" class="search-result hidden"></div>
     <div id="book-grid" class="book-grid"></div>
   </div>
   <button class="fab" id="btn-new-book">＋</button>
@@ -90,6 +101,7 @@
     <button id="voice-hint-close">知道了</button>
   </div>
   <textarea id="ed-text" class="ed-text" placeholder="开始写作…" spellcheck="false"></textarea>
+  <button id="btn-exit-immersive" class="exit-immersive hidden">退出沉浸</button>
   <div class="ed-footer">
     <button id="ed-tool-history" class="tool-btn">历史</button>
     <button id="ed-tool-find" class="tool-btn">查找</button>

@@ -6,3 +6,9 @@ android/local.properties
 *.iml
 .idea/
 apk_url*.txt
+dl/
+shots/
+shot-*.png
+download-card-*.png
+download-qr*.png
+icon-preview.png

@@ -32,6 +32,8 @@
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     $(view).classList.add('active');
     document.body.classList.remove('reading');
+    const eb = $('btn-exit-immersive');
+    if (eb) eb.classList.add('hidden');
   }
 
   /* 抽屉 */
@@ -51,21 +53,25 @@
 
   function confirmBox(msg) { return window.confirm(msg); }
 
-  /* 封面色:统一中低明度 + 低饱和,白字压得住,彼此不打架 */
+  /* 封面色:仿布面精装书。中饱和、中明度,色相拉开,相邻不撞 */
   const COVER_COLORS = [
-    'linear-gradient(150deg,#2f6d66,#3e8a80)',
-    'linear-gradient(150deg,#35506e,#46688c)',
-    'linear-gradient(150deg,#5b4a78,#756096)',
-    'linear-gradient(150deg,#8a5740,#a67153)',
-    'linear-gradient(150deg,#3c6b4b,#528a64)',
-    'linear-gradient(150deg,#7c3f48,#9a5661)',
-    'linear-gradient(150deg,#7a6031,#99794a)',
-    'linear-gradient(150deg,#3a4348,#545f66)',
+    'linear-gradient(155deg,#2f7f74,#1d5a53)',  // 青
+    'linear-gradient(155deg,#3d6aa8,#2a4a7d)',  // 蓝
+    'linear-gradient(155deg,#6b56a0,#4a3a75)',  // 紫
+    'linear-gradient(155deg,#b06a45,#844a2f)',  // 赭橙
+    'linear-gradient(155deg,#4a8a5c,#2f6142)',  // 绿
+    'linear-gradient(155deg,#a85060,#7a3644)',  // 绛红
+    'linear-gradient(155deg,#a08a45,#75622e)',  // 金橄榄
+    'linear-gradient(155deg,#4a6a70,#304a50)',  // 蓝灰
+    'linear-gradient(155deg,#8a5a86,#603c5e)',  // 紫红
+    'linear-gradient(155deg,#3f7a8a,#2a5563)',  // 湖蓝
+    'linear-gradient(155deg,#7d5a4a,#54392c)',  // 咖啡
+    'linear-gradient(155deg,#5a6a8a,#3a4660)',  // 雾蓝
   ];
-  function coverOf(book) {
+  function coverIndex(book) {
     let h = 0;
     for (const c of (book.id || '')) h = (h * 31 + c.charCodeAt(0)) % 997;
-    return COVER_COLORS[h % COVER_COLORS.length];
+    return h % COVER_COLORS.length;
   }
 
   /* 长按 */
@@ -116,12 +122,25 @@
       grid.innerHTML = `<div class="empty" style="grid-column:1/-1">书架空空如也<br>点右下角 ＋ 创建第一本书</div>`;
       return;
     }
+    /* 同一屏内尽量不要出现重复封面色(用最近 4 本做窗口),冲突就顺延 */
+    const recent = [];
     grid.innerHTML = books.map(b => {
       const words = DB.bookWords(b.id);
       const chs = DB.bookChapters(b.id).length;
+      let ci = coverIndex(b);
+      let guard = 0;
+      while (recent.indexOf(ci) >= 0 && guard < COVER_COLORS.length) { ci = (ci + 1) % COVER_COLORS.length; guard++; }
+      recent.push(ci);
+      if (recent.length > 4) recent.shift();
       return `
         <div class="book-card" data-bid="${b.id}">
-          <div class="book-cover" style="background:${coverOf(b)}"><span>${esc(b.name)}</span></div>
+          <div class="book-cover" style="background:${COVER_COLORS[ci]}">
+            <div class="bc-inner">
+              <div class="bc-title">${esc(b.name)}</div>
+              <div class="bc-rule"></div>
+              <div class="bc-author">${esc(b.author || '白泽')}</div>
+            </div>
+          </div>
           <div class="book-name">${esc(b.name)}</div>
           <div class="book-words">${fmtWords(words)}字 · ${chs}章</div>
         </div>`;
@@ -131,6 +150,118 @@
       const bid = card.dataset.bid;
       card.addEventListener('click', () => openCatalog(bid));
       bindLongPress(card, () => bookMenu(bid));
+    });
+  }
+
+  /* ---------------- 继续写作 ----------------
+   * 打开 App 最想干的事就是接着上次写,不该让用户点两次才到。
+   */
+  function renderResume() {
+    const box = $('resume-card');
+    const books = DB.books().filter(b => !b.flag);
+    const alive = new Set(books.map(b => b.id));
+    const arts = DB.all('article')
+      .filter(a => alive.has(a.bookId))
+      .sort((a, b) => (b.updateTime || 0) - (a.updateTime || 0));
+    if (!arts.length) { box.classList.add('hidden'); return; }
+    const a = arts[0];
+    const bk = DB.get('book', a.bookId);
+    if (!bk) { box.classList.add('hidden'); return; }
+
+    const words = DB.countWords(a.text || '');
+    const ago = agoText(a.updateTime);
+    box.innerHTML = `
+      <div class="rc-main">
+        <div class="rc-kicker">继续写作</div>
+        <div class="rc-book">《${esc(bk.name)}》</div>
+        <div class="rc-chap">${esc(a.name || '未命名章节')}</div>
+        <div class="rc-meta">${words} 字 · ${ago}</div>
+      </div>
+      <button class="rc-go" aria-label="继续">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </button>`;
+    box.classList.remove('hidden');
+    box.onclick = () => openEditor(a.id);
+  }
+
+  function agoText(ts) {
+    if (!ts) return '还没动笔';
+    const d = Date.now() - ts;
+    if (d < 60e3) return '刚刚';
+    if (d < 3600e3) return Math.floor(d / 60e3) + ' 分钟前';
+    if (d < 86400e3) return Math.floor(d / 3600e3) + ' 小时前';
+    if (d < 7 * 86400e3) return Math.floor(d / 86400e3) + ' 天前';
+    const t = new Date(ts), p = n => String(n).padStart(2, '0');
+    return `${t.getMonth() + 1}月${t.getDate()}日`;
+  }
+
+  /* ---------------- 搜索 ---------------- */
+  let searchOn = false;
+
+  function toggleSearch(on) {
+    searchOn = on === undefined ? !searchOn : on;
+    $('search-wrap').classList.toggle('hidden', !searchOn);
+    $('group-bar').style.display = searchOn ? 'none' : '';
+    $('book-grid').classList.toggle('hidden', searchOn);
+    $('search-result').classList.toggle('hidden', !searchOn);
+    if (searchOn) {
+      $('resume-card').classList.add('hidden');
+      $('search-input').value = '';
+      $('search-result').innerHTML = '';
+      setTimeout(() => $('search-input').focus(), 60);
+    } else {
+      renderResume();
+    }
+  }
+
+  function doSearch(q) {
+    q = (q || '').trim();
+    const box = $('search-result');
+    if (!q) { box.innerHTML = ''; return; }
+    const low = q.toLowerCase();
+    const books = DB.books().filter(b => !b.flag);
+    const bookName = {};
+    books.forEach(b => { bookName[b.id] = b.name; });
+
+    const hits = [];
+    // 书
+    books.forEach(b => {
+      if (String(b.name || '').toLowerCase().indexOf(low) >= 0) {
+        hits.push({ kind: 'book', title: b.name, book: b.name, sub: `${DB.bookChapters(b.id).length} 章 · ${DB.bookWords(b.id)} 字`, onClick: () => openCatalog(b.id) });
+      }
+    });
+    // 章节:标题 + 正文
+    DB.all('article').forEach(a => {
+      if (!bookName[a.bookId]) return;
+      const inTitle = String(a.name || '').toLowerCase().indexOf(low) >= 0;
+      const text = String(a.text || '');
+      const at = text.toLowerCase().indexOf(low);
+      if (!inTitle && at < 0) return;
+      let sub;
+      if (at >= 0) {
+        const s = Math.max(0, at - 12);
+        const frag = text.slice(s, at) + '\u0001' + text.slice(at, at + q.length) + '\u0002' + text.slice(at + q.length, at + q.length + 24);
+        sub = '…' + esc(frag).replace(/\u0001/g, '<em>').replace(/\u0002/g, '</em>') + '…';
+      } else {
+        sub = `${a.wordsNumText || 0} 字`;
+      }
+      hits.push({ kind: 'chapter', title: a.name || '未命名章节', book: bookName[a.bookId], sub, onClick: () => openEditor(a.id) });
+    });
+
+    if (!hits.length) {
+      box.innerHTML = `<div class="search-empty">没有找到「${esc(q)}」</div>`;
+      return;
+    }
+    box.innerHTML = hits.slice(0, 60).map((h, i) => `
+      <div class="sr-hit" data-i="${i}">
+        <div class="sh-main">
+          <div class="sh-t">${esc(h.title)}</div>
+          <div class="sh-s"><span class="sh-book">《${esc(h.book)}》</span>${h.sub}</div>
+        </div>
+        <span class="sh-badge">${h.kind === 'book' ? '书' : '章节'}</span>
+      </div>`).join('');
+    box.querySelectorAll('.sr-hit').forEach(el => {
+      el.addEventListener('click', () => hits[+el.dataset.i].onClick());
     });
   }
 
@@ -194,6 +325,12 @@
     renderGroupBar(); renderShelf();
     openCatalog(b.id);
   });
+
+  /* 搜索 */
+  $('btn-search').addEventListener('click', () => toggleSearch());
+  $('search-cancel').addEventListener('click', () => toggleSearch(false));
+  $('search-input').addEventListener('input', e => doSearch(e.target.value));
+  $('search-input').addEventListener('keydown', e => { if (e.key === 'Escape') toggleSearch(false); });
 
   /* ================= 目录 ================= */
   function openCatalog(bid) {
@@ -383,12 +520,21 @@
   });
 
   /* ================= 编辑器 ================= */
+  /* 正文字体预设:'' = 跟随主题衬线(默认,最有书卷气) */
+  const FONT_PRESETS = {
+    serif: '"Songti SC","STSong","Noto Serif CJK SC","Source Han Serif SC","SimSun","NSimSun",serif',
+    sans: '-apple-system,"HarmonyOS Sans SC","MiSans","PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif',
+    kai: '"Kaiti SC","STKaiti","KaiTi","楷体",serif',
+    mono: '"SF Mono","JetBrains Mono",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace',
+  };
+
   function applyEditorStyle() {
     const s = DB.settings();
     const ta = $('ed-text');
     ta.style.fontSize = s.fontSize + 'px';
     ta.style.lineHeight = s.lineHeight;
-    ta.style.fontFamily = s.fontFamily || 'inherit';
+    const fam = s.fontFamily || 'serif';
+    ta.style.fontFamily = FONT_PRESETS[fam] || FONT_PRESETS.serif;
     document.body.className = document.body.className.replace(/bg-\w+/g, '').trim();
     if (s.bg && s.bg !== 'default') document.body.classList.add('bg-' + s.bg);
     document.documentElement.dataset.theme = s.theme;
@@ -480,6 +626,8 @@
     if (window.Voice.active) window.Voice.stopSystem();
     curArticle = null;
     renderCatalog();
+    renderShelf();
+    renderResume();
     show('view-catalog');
   });
 
@@ -546,7 +694,7 @@
         <span class="si-icon">🕘</span>
         <div style="flex:1">
           <div>${fmtDate(h.createTime)}</div>
-          <div style="font-size:12px;color:var(--sub);margin-top:2px">${h.wordsNumText || 0} 字 · ${esc((h.text || '').slice(0, 24))}…</div>
+          <div style="font-size:12px;color:var(--ink-3);margin-top:2px">${h.wordsNumText || 0} 字 · ${esc((h.text || '').slice(0, 24))}…</div>
         </div>
       </div>`).join('') : '<div class="empty" style="padding:30px 0">暂无历史版本<br>每次保存间隔 3 分钟以上会留快照</div>');
 
@@ -617,16 +765,19 @@
     });
   });
 
-  /* 阅读模式 */
+  /* 阅读模式(沉浸) */
+  function setImmersive(on) {
+    document.body.classList.toggle('reading', on);
+    $('btn-exit-immersive').classList.toggle('hidden', !on);
+  }
   $('ed-tool-reading').addEventListener('click', () => {
-    document.body.classList.toggle('reading');
-    if (document.body.classList.contains('reading')) {
-      toast('阅读模式:再点一次退出(工具条已隐藏,双击屏幕顶部退出)', 2400);
-    }
+    setImmersive(!document.body.classList.contains('reading'));
+    if (document.body.classList.contains('reading')) toast('沉浸写作:点右下角「退出沉浸」回来', 2200);
   });
-  // 阅读模式下双击顶部退出
+  $('btn-exit-immersive').addEventListener('click', () => setImmersive(false));
+  // 沉浸模式下双击正文也能退出
   $('ed-text').addEventListener('dblclick', () => {
-    if (document.body.classList.contains('reading')) document.body.classList.remove('reading');
+    if (document.body.classList.contains('reading')) setImmersive(false);
   });
 
   /* 编辑器更多 */
@@ -711,24 +862,59 @@
     ctx.clearRect(0, 0, w, h);
 
     const max = Math.max(100, ...days.map(d => d.v));
-    const padB = 22, padT = 10;
-    const barW = (w - 16) / days.length;
-    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4f6ef7';
-    const sub = getComputedStyle(document.documentElement).getPropertyValue('--sub').trim() || '#8a8a9c';
+    const padB = 24, padT = 14;
+    const slot = (w - 16) / days.length;
+
+    const cs = getComputedStyle(document.documentElement);
+    const cv = (n, fb) => (cs.getPropertyValue(n) || '').trim() || fb;
+    const brand = cv('--brand', '#17876d');
+    const brand2 = cv('--brand-2', '#2ba98a');
+    const empty = cv('--line', '#e2e9e7');
+    const sub = cv('--ink-3', '#8d9a95');
+
+    // 基线
+    ctx.strokeStyle = empty; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(8, h - padB + .5); ctx.lineTo(w - 8, h - padB + .5); ctx.stroke();
+
+    // 标签:每 3 根一个 + 最后一根(今天)。从右往左排,避免最后两个挤在一起
+    const want = new Set();
+    for (let i = 0; i < days.length; i += 3) want.add(i);
+    want.add(days.length - 1);
+    const sorted = [...want].sort((a, b) => a - b);
+    const keep = [];
+    for (let k = sorted.length - 1; k >= 0; k--) {
+      if (!keep.length || keep[0] - sorted[k] >= 2) keep.unshift(sorted[k]);
+    }
+    const labelSet = new Set(keep);
 
     days.forEach((d, i) => {
-      const bh = Math.max(2, (d.v / max) * (h - padB - padT));
-      const x = 8 + i * barW + barW * 0.2;
-      const bw = barW * 0.6;
+      const bh = Math.max(d.v > 0 ? 3 : 2, (d.v / max) * (h - padB - padT));
+      const bw = slot * 0.52;
+      const x = 8 + i * slot + (slot - bw) / 2;
       const y = h - padB - bh;
-      ctx.fillStyle = d.v > 0 ? accent : (getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#ebebf0');
+
+      if (d.v > 0) {
+        const g = ctx.createLinearGradient(0, y, 0, h - padB);
+        g.addColorStop(0, brand2); g.addColorStop(1, brand);
+        ctx.fillStyle = g;
+      } else {
+        ctx.fillStyle = empty;
+      }
       ctx.beginPath();
-      const r = Math.min(4, bw / 2);
-      ctx.roundRect ? ctx.roundRect(x, y, bw, bh, r) : ctx.rect(x, y, bw, bh);
+      const r = Math.min(bw / 2, 5);
+      if (ctx.roundRect) ctx.roundRect(x, y, bw, bh, [r, r, 0, 0]);
+      else ctx.rect(x, y, bw, bh);
       ctx.fill();
-      if (i % 3 === 0) {
-        ctx.fillStyle = sub; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText(d.label, x + bw / 2, h - 6);
+
+      // 今天那根顶端点一下,好认
+      if (i === days.length - 1 && d.v > 0) {
+        ctx.fillStyle = brand;
+        ctx.beginPath(); ctx.arc(x + bw / 2, y - 6, 2.2, 0, Math.PI * 2); ctx.fill();
+      }
+
+      if (labelSet.has(i)) {
+        ctx.fillStyle = sub; ctx.font = '10px -apple-system,sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(d.label, x + bw / 2, h - 7);
       }
     });
   }
@@ -781,6 +967,7 @@
 
   function renderSettings() {
     const s = DB.settings();
+    const info = DB.storageInfo();
     const body = $('settings-body');
     body.innerHTML = `
       <div class="set-group">
@@ -804,6 +991,22 @@
       </div>
 
       <div class="set-group">
+        <div class="set-group-title">数据</div>
+        <div class="set-row">
+          <span class="sr-label">存储<span class="sr-sub">${info.engine} · ${info.articles} 章 · ${(info.chars / 10000).toFixed(1)} 万字 · ${info.history} 条历史</span></span>
+          <span class="set-val">${info.engine === 'IndexedDB' ? '容量充足' : '容量受限'}</span>
+        </div>
+        <div class="set-row">
+          <span class="sr-label">备份<span class="sr-sub">导出全部作品为 JSON 文件</span></span>
+          <button class="chip" id="st-backup">导出</button>
+        </div>
+        <div class="set-row">
+          <span class="sr-label">恢复<span class="sr-sub">从备份文件导入（会覆盖现有数据）</span></span>
+          <button class="chip" id="st-restore">导入</button>
+        </div>
+      </div>
+
+      <div class="set-group">
         <div class="set-group-title">外观</div>
         <div class="set-row">
           <span class="sr-label">夜间模式</span>
@@ -818,6 +1021,13 @@
           <span class="sr-label">行距</span>
           <input type="range" id="st-lh" min="1.4" max="2.6" step="0.1" value="${s.lineHeight}">
           <span class="set-val">${s.lineHeight}</span>
+        </div>
+        <div class="set-row">
+          <span class="sr-label">正文字体</span>
+          <select id="st-font">
+            ${[['serif', '宋体(推荐)'], ['sans', '黑体'], ['kai', '楷体'], ['mono', '等宽']]
+              .map(([k, n]) => `<option value="${k}" ${(s.fontFamily || 'serif') === k ? 'selected' : ''}>${n}</option>`).join('')}
+          </select>
         </div>
         <div class="set-row">
           <span class="sr-label">写作背景</span>
@@ -887,6 +1097,34 @@
     });
     $('st-lock').addEventListener('click', setLockFlow);
 
+    $('st-backup').addEventListener('click', () => {
+      const data = DB.exportAll();
+      downloadText(`白泽写作备份-${DB.todayKey()}.json`, JSON.stringify(data));
+      toast('备份已导出');
+    });
+    $('st-restore').addEventListener('click', () => {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = '.json,application/json';
+      inp.onchange = () => {
+        const f = inp.files && inp.files[0];
+        if (!f) return;
+        const rd = new FileReader();
+        rd.onload = () => {
+          try {
+            const n = DB.importAll(JSON.parse(String(rd.result)));
+            toast(`已恢复 ${n} 条记录`);
+            renderShelf();
+            renderSettings();
+          } catch (e) {
+            toast('导入失败：' + e.message);
+          }
+        };
+        rd.readAsText(f);
+      };
+      inp.click();
+    });
+
     $('st-theme').addEventListener('click', () => {
       const cur = DB.settings().theme;
       DB.setSetting('theme', cur === 'dark' ? 'light' : 'dark');
@@ -895,6 +1133,7 @@
     $('st-size').addEventListener('change', e => { DB.setSetting('fontSize', +e.target.value); applyEditorStyle(); renderSettings(); });
     $('st-lh').addEventListener('change', e => { DB.setSetting('lineHeight', +e.target.value); applyEditorStyle(); renderSettings(); });
     $('st-bg').addEventListener('change', e => { DB.setSetting('bg', e.target.value); applyEditorStyle(); });
+    $('st-font').addEventListener('change', e => { DB.setSetting('fontFamily', e.target.value); applyEditorStyle(); });
     $('st-voice').addEventListener('change', e => { DB.setSetting('voiceMode', e.target.value); toast('已切换语音方式'); });
     $('st-voice-diag').addEventListener('click', async () => {
       const d = await window.Voice.diagnose();
@@ -930,7 +1169,7 @@
         if (r.hasUpdate) {
           const m = r.manifest;
           openSheet('发现新版本 v' + m.versionName, `
-            <div style="font-size:13px;color:var(--sub);line-height:1.8;margin-bottom:14px">${esc(m.notes || '优化体验与修复问题')}</div>
+            <div style="font-size:13px;color:var(--ink-3);line-height:1.8;margin-bottom:14px">${esc(m.notes || '优化体验与修复问题')}</div>
             <button class="btn-primary" id="btn-do-update">立即更新</button>
           `);
           $('btn-do-update').addEventListener('click', () => { closeSheet(); window.Update.install(m); });
@@ -959,9 +1198,9 @@
         <span class="si-icon">${r.type === 'book' ? '📕' : '📄'}</span>
         <div style="flex:1">
           <div>${esc(r.name)}</div>
-          <div style="font-size:12px;color:var(--sub);margin-top:2px">${r.type === 'book' ? '整本' : '章节'} · ${r.wordsNumText || 0} 字 · ${fmtDate(r.createTime)}</div>
+          <div style="font-size:12px;color:var(--ink-3);margin-top:2px">${r.type === 'book' ? '整本' : '章节'} · ${r.wordsNumText || 0} 字 · ${fmtDate(r.createTime)}</div>
         </div>
-        <span style="color:var(--accent);font-size:13px">恢复</span>
+        <span style="color:var(--brand);font-size:13px">恢复</span>
       </div>`).join('') : '<div class="empty" style="padding:30px 0">回收站是空的</div>');
 
     $('sheet-body').querySelectorAll('[data-rid]').forEach(it => {
@@ -978,7 +1217,8 @@
   $('btn-set-back').addEventListener('click', () => { renderShelf(); show('view-shelf'); });
 
   /* ================= 启动 ================= */
-  function boot() {
+  async function boot() {
+    await DB.ready;
     const s = DB.settings();
     document.documentElement.dataset.theme = s.theme;
     applyEditorStyle();
@@ -992,11 +1232,12 @@
 
     renderGroupBar();
     renderShelf();
+    renderResume();
 
     // 静默检查更新
     window.Update.silentCheck((m) => {
       openSheet('发现新版本 v' + m.versionName, `
-        <div style="font-size:13px;color:var(--sub);line-height:1.8;margin-bottom:14px">${esc(m.notes || '')}</div>
+        <div style="font-size:13px;color:var(--ink-3);line-height:1.8;margin-bottom:14px">${esc(m.notes || '')}</div>
         <button class="btn-primary" id="btn-up-now">立即更新</button>
         <button class="btn-ghost" id="btn-up-later">以后再说</button>
       `);
@@ -1010,6 +1251,5 @@
     if (e.key === 'Escape') { closeSheet(); }
   });
 
-  boot();
-  checkLock();
+  boot().then(() => checkLock());
 })();

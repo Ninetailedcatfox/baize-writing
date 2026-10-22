@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>db 自检</title></head>
+<body>
+<pre id="out">pending</pre>
+<script src="../www/js/db.js"></script>
+<script>
+(async function () {
+  const log = [];
+  let pass = 0, fail = 0;
+  const ok = (n, c, x) => { if (c) { pass++; log.push('PASS  ' + n); } else { fail++; log.push('FAIL  ' + n + (x ? '  -> ' + x : '')); } };
+
+  const info = await window.DB.ready;
+  ok('DB.ready 已 resolve', !!info);
+  ok('使用 IndexedDB', info && info.idb === true, JSON.stringify(info));
+
+  const DB = window.DB;
+  ok('初始 storageInfo 可用', typeof DB.storageInfo().engine === 'string');
+
+  // 建书 + 章
+  const b = DB.addBook('性能测试书');
+  ok('建书成功', !!DB.get('book', b.id));
+
+  // 写入 100 章 × 5000 字,记录每次 put 的耗时
+  const CH = 100, LEN = 5000;
+  const body = '天地玄黄宇宙洪荒'.repeat(LEN / 8);
+  const times = [];
+  for (let i = 0; i < CH; i++) {
+    const a = DB.addArticle(b.id, '', '第' + (i + 1) + '章');
+    const t0 = performance.now();
+    DB.put('article', { id: a.id, text: body });
+    times.push(performance.now() - t0);
+  }
+  const st = DB.storageInfo();
+  ok('章节数正确', st.articles === CH, 'got=' + st.articles);
+  ok('总字数 ≈ 50 万', st.chars >= CH * LEN, 'chars=' + st.chars);
+
+  const first10 = times.slice(0, 10).reduce((a, b) => a + b, 0) / 10;
+  const last10 = times.slice(-10).reduce((a, b) => a + b, 0) / 10;
+  log.push(`  单次写入: 前10章均 ${first10.toFixed(2)}ms / 后10章均 ${last10.toFixed(2)}ms`);
+  ok('写入不随数据量变慢(<3倍)', last10 < Math.max(first10 * 3, 8), `${first10.toFixed(2)} -> ${last10.toFixed(2)}`);
+
+  // 读回校验
+  const all = DB.all('article');
+  ok('读回 100 章', all.length === CH);
+  ok('正文完整', all[0].text.length === body.length, 'len=' + all[0].text.length);
+
+  // 备份导出/导入
+  const dump = DB.exportAll();
+  ok('导出含 tables', !!(dump.tables && dump.tables.article));
+  ok('导出含 100 章', dump.tables.article.length === CH);
+
+  const n = DB.importAll(dump);
+  ok('导入返回条数', n >= CH, 'n=' + n);
+  ok('导入后章节数不变', DB.all('article').length === CH);
+
+  // 历史快照清理
+  const a0 = DB.all('article')[0];
+  DB.HISTORY_INTERVAL = 0;
+  for (let i = 0; i < 30; i++) DB.pushHistory({ id: a0.id, text: 'v' + i, wordsNumText: i, wordsNumAll: i });
+  const hist = DB.history(a0.id);
+  ok('历史快照上限 20', hist.length <= 20, 'got=' + hist.length);
+
+  document.getElementById('out').textContent = `pass=${pass} fail=${fail}\n\n` + log.join('\n');
+})().catch(e => {
+  document.getElementById('out').textContent = 'CRASH: ' + e.message + '\n' + e.stack;
+});
+</script>
+</body>
+</html>

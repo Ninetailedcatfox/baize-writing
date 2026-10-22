@@ -3,8 +3,8 @@
  * { "versionCode": 3, "versionName": "2.1.0", "url": "https://.../app.apk", "notes": "更新内容", "force": false }
  */
 (function () {
-  const APP_VERSION_CODE = 2;
-  const APP_VERSION_NAME = '2.0.0';
+  const APP_VERSION_CODE = 6;
+  const APP_VERSION_NAME = '2.4.0';
   const CHECK_INTERVAL = 12 * 60 * 60 * 1000; // 12 小时静默检查一次
 
   async function fetchManifest(url) {
