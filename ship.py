@@ -102,7 +102,7 @@ if __name__ == "__main__":
         run_id, title = sys.argv[1], "(手动指定)"
     else:
         run_id, title = latest_run()
-    tag = "v" + VERSION.replace(".", "")[:3]   # 2.5.0 -> v250
+    tag = VERSION.replace(".", "")[:3]        # 2.5.0 -> 250(别再拼一个 v,会变成 vv250)
     print("构建 %s  %s" % (run_id, title))
     apk = download(run_id)
     node = upload(apk)
