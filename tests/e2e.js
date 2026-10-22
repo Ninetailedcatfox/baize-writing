@@ -368,6 +368,12 @@ function ok(name, cond, extra) {
   ok('插入后正文含生成内容', /捡回来/.test(await ev("document.getElementById('ed-text').value") || ''));
   ok('插入后面板自动关闭', await ev("document.getElementById('sheet').classList.contains('hidden')"));
 
+  // 选中一句再点 AI,应该自动带进输入框(用户想扩写的就是这句)
+  const picked = await ev("(function(){const t=document.getElementById('ed-text');t.focus();t.setSelectionRange(0,6);return t.value.slice(0,6)})()");
+  await ev("document.getElementById('ed-tool-ai').click()");
+  await wait(500);
+  const prefill = await ev("document.getElementById('ai-input').value");
+  ok('选中文字后自动带进输入框', prefill === String(picked).trim(), { picked, prefill });
   await ev("document.querySelector('#sheet-mask').click()");
   await wait(300);
 

@@ -169,6 +169,7 @@
       fr.onload = () => {
         cropCover(fr.result).then(dataUrl => {
           DB.put('book', { id: bid, cover: dataUrl, updateTime: Date.now() });
+          DB.flush();   // 别让"选完封面就切后台"把封面丢了
           renderShelf(); renderResume();
           toast('封面已换好');
         }).catch(e => toast('处理失败:' + e.message));
@@ -354,6 +355,7 @@
         if (act === 'cover') { pickCover(bid); return; }
         if (act === 'cover-reset') {
           DB.put('book', { id: bid, cover: '' });
+          DB.flush();
           renderShelf(); toast('已恢复默认封面');
           return;
         }
@@ -787,6 +789,9 @@
     let mode = 'expand';
     let len = 300;
     let busy = false;
+
+    // 正文里选中了一句,就直接带进输入框 —— 想扩写的就是这句,不用再打一遍
+    if (sel && sel.trim() && sel.length <= 500) $('ai-input').value = sel.trim();
 
     $('ai-modes').querySelectorAll('.ai-mode').forEach(b => {
       b.addEventListener('click', () => {
