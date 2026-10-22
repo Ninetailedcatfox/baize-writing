@@ -228,6 +228,8 @@
         fontSize: 17, lineHeight: 1.9, fontFamily: '', bg: 'default',
         readingMode: false, theme: 'light', autoUpdate: true,
         updateUrl: '', voiceMode: 'ime', // ime = 输入法语音(默认) | system = 系统识别
+        dailyGoal: 2000,   // 每日字数目标
+        lockCode: '',      // 应用锁 PIN,空表示未开启
       }, read(K.settings, {}));
     },
     setSetting(k, v) {

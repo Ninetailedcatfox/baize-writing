@@ -46,14 +46,21 @@
   }
   $('sheet-mask').addEventListener('click', closeSheet);
 
+  /* 供 tools.js 复用 */
+  window.UI = { openSheet, closeSheet, show, esc, fmtWords, toast };
+
   function confirmBox(msg) { return window.confirm(msg); }
 
-  /* 封面色 */
+  /* 封面色:统一中低明度 + 低饱和,白字压得住,彼此不打架 */
   const COVER_COLORS = [
-    'linear-gradient(135deg,#4f6ef7,#7b5cf0)', 'linear-gradient(135deg,#f7704f,#f0a75c)',
-    'linear-gradient(135deg,#2fb88c,#4fd1a5)', 'linear-gradient(135deg,#e5484d,#f0806f)',
-    'linear-gradient(135deg,#5c7cfa,#4dabf7)', 'linear-gradient(135deg,#9b5cf0,#e06fd1)',
-    'linear-gradient(135deg,#f0b400,#f7d04f)', 'linear-gradient(135deg,#3d4a5c,#6b7a8c)',
+    'linear-gradient(150deg,#2f6d66,#3e8a80)',
+    'linear-gradient(150deg,#35506e,#46688c)',
+    'linear-gradient(150deg,#5b4a78,#756096)',
+    'linear-gradient(150deg,#8a5740,#a67153)',
+    'linear-gradient(150deg,#3c6b4b,#528a64)',
+    'linear-gradient(150deg,#7c3f48,#9a5661)',
+    'linear-gradient(150deg,#7a6031,#99794a)',
+    'linear-gradient(150deg,#3a4348,#545f66)',
   ];
   function coverOf(book) {
     let h = 0;
@@ -101,6 +108,9 @@
 
   function renderShelf() {
     let books = DB.books(curGroupId || null).filter(b => !b.flag);
+    const sortBy = DB.settings().bookSort || 'update';
+    if (sortBy === 'name') books = books.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh'));
+    else if (sortBy === 'words') books = books.slice().sort((a, b) => DB.bookWords(b.id) - DB.bookWords(a.id));
     const grid = $('book-grid');
     if (!books.length) {
       grid.innerHTML = `<div class="empty" style="grid-column:1/-1">书架空空如也<br>点右下角 ＋ 创建第一本书</div>`;
@@ -392,14 +402,41 @@
     $('ed-text').value = a.text || '';
     updateEdMeta('已保存');
     applyEditorStyle();
+    resetSpeed();
     show('view-editor');
     editStartAt = Date.now();
     setTimeout(() => { $('ed-text').focus(); }, 120);
     if (document.body.classList.contains('reading')) document.body.classList.remove('reading');
   }
 
+  /* 码字速度:最近 60 秒净增字数 */
+  let speedBuf = [];
+  let lastWordCount = 0;
+
+  function resetSpeed() {
+    speedBuf = [];
+    lastWordCount = DB.countWords($('ed-text').value);
+  }
+
+  function trackSpeed() {
+    const now = Date.now();
+    const w = DB.countWords($('ed-text').value);
+    const delta = w - lastWordCount;
+    lastWordCount = w;
+    if (delta > 0) speedBuf.push({ t: now, d: delta });
+    speedBuf = speedBuf.filter(x => now - x.t < 60000);
+  }
+
+  function currentSpeed() {
+    const now = Date.now();
+    speedBuf = speedBuf.filter(x => now - x.t < 60000);
+    return speedBuf.reduce((n, x) => n + x.d, 0);
+  }
+
   function updateEdMeta(status) {
     $('ed-words').textContent = `${DB.countWords($('ed-text').value)} 字`;
+    const sp = currentSpeed();
+    $('ed-speed').textContent = sp > 0 ? `${sp} 字/分` : '';
     const st = $('ed-status');
     st.textContent = status;
     st.classList.toggle('saved', status === '已保存');
@@ -434,7 +471,7 @@
     updateEdMeta('已保存');
   }
 
-  $('ed-text').addEventListener('input', scheduleSave);
+  $('ed-text').addEventListener('input', () => { trackSpeed(); scheduleSave(); });
   $('ed-title').addEventListener('input', scheduleSave);
   $('ed-text').addEventListener('blur', () => { if (dirty) doSave(); });
 
@@ -596,13 +633,16 @@
   $('btn-ed-more').addEventListener('click', () => {
     openSheet('章节操作', `
       <div class="sheet-item" data-act="rename"><span class="si-icon">✏️</span>重命名</div>
+      <div class="sheet-item" data-act="share"><span class="si-icon">🖼</span>生成长图分享</div>
       <div class="sheet-item" data-act="export"><span class="si-icon">📤</span>导出本章 TXT</div>
-      <div class="sheet-item" data-act="trash"><span class="si-icon">🗑</span>删除(进回收站)</div>
+      <div class="sheet-item danger" data-act="trash"><span class="si-icon">🗑</span>删除(进回收站)</div>
     `);
     $('sheet-body').querySelectorAll('.sheet-item').forEach(it => {
       it.addEventListener('click', () => {
         const act = it.dataset.act; closeSheet();
-        if (act === 'rename') {
+        if (act === 'share') {
+          window.Tools.makeShareImage();
+        } else if (act === 'rename') {
           const n = prompt('新章节名:', $('ed-title').value);
           if (n && n.trim()) { $('ed-title').value = n.trim(); doSave(); }
         } else if (act === 'export') {
@@ -625,8 +665,20 @@
     const streak = DB.streak();
     const todayMin = today ? Math.round((today.writeDuration || 0) / 60) : 0;
 
+    const goal = DB.settings().dailyGoal || 2000;
+    const todayWords = today ? (today.wordsTxtInput || 0) : 0;
+    const pct = Math.min(100, Math.round(todayWords / goal * 100));
+
     $('stat-cards').innerHTML = `
-      <div class="stat-card"><div class="sv">${today ? (today.wordsTxtInput || 0) : 0}</div><div class="sl">今日字数</div></div>
+      <div class="goal-card">
+        <div class="goal-head">
+          <span>今日目标</span>
+          <b>${todayWords} <i>/ ${goal}</i></b>
+        </div>
+        <div class="goal-bar"><i style="width:${pct}%"></i></div>
+        <div class="goal-foot">${pct >= 100 ? '目标达成' : `还差 ${goal - todayWords} 字`}</div>
+      </div>
+      <div class="stat-card"><div class="sv">${todayWords}</div><div class="sl">今日字数</div></div>
       <div class="stat-card"><div class="sv">${fmtWords(totalWords)}</div><div class="sl">总字数</div></div>
       <div class="stat-card"><div class="sv">${streak}</div><div class="sl">连续写作天数</div></div>
       <div class="stat-card"><div class="sv">${todayMin}</div><div class="sl">今日写作(分钟)</div></div>`;
@@ -682,13 +734,75 @@
   }
 
   $('btn-stats').addEventListener('click', () => { renderStats(); show('view-stats'); });
+  $('btn-tools').addEventListener('click', () => window.Tools.openNameGen());
+  $('btn-annual').addEventListener('click', () => window.Tools.openAnnualReport());
+  $('ed-tool-find').addEventListener('click', () => window.Tools.openFindReplace());
+  $('ed-tool-quick').addEventListener('click', () => window.Tools.openQuickInput());
   $('btn-stats-back').addEventListener('click', () => { renderShelf(); show('view-shelf'); });
 
   /* ================= 设置 ================= */
+  /* ---------------- 应用锁 ---------------- */
+  function setLockFlow() {
+    const cur = DB.settings().lockCode;
+    const v = prompt(cur ? '输入新密码（留空则关闭应用锁）' : '设置 4-8 位数字密码（留空取消）', '');
+    if (v === null) return;
+    const t = v.trim();
+    if (!t) { DB.setSetting('lockCode', ''); toast('已关闭应用锁'); renderSettings(); return; }
+    if (!/^\d{4,8}$/.test(t)) { toast('请使用 4-8 位数字'); return; }
+    DB.setSetting('lockCode', t);
+    toast('应用锁已设置');
+    renderSettings();
+  }
+
+  function checkLock() {
+    const code = DB.settings().lockCode;
+    if (!code) return;
+    const el = document.createElement('div');
+    el.className = 'lock-screen';
+    el.innerHTML = `
+      <div class="lock-inner">
+        <div class="lock-brand">白泽写作</div>
+        <div class="lock-sub">输入密码解锁</div>
+        <input id="lock-input" type="password" inputmode="numeric" maxlength="8" placeholder="••••" autocomplete="off">
+        <button id="lock-ok" class="btn-primary">解锁</button>
+      </div>`;
+    document.body.appendChild(el);
+    const inp = el.querySelector('#lock-input');
+    const tryUnlock = () => {
+      if (inp.value === code) { el.remove(); return; }
+      inp.value = '';
+      inp.classList.add('shake');
+      setTimeout(() => inp.classList.remove('shake'), 420);
+    };
+    el.querySelector('#lock-ok').addEventListener('click', tryUnlock);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
+    setTimeout(() => { try { inp.focus(); } catch (e) {} }, 260);
+  }
+
   function renderSettings() {
     const s = DB.settings();
     const body = $('settings-body');
     body.innerHTML = `
+      <div class="set-group">
+        <div class="set-group-title">写作</div>
+        <div class="set-row">
+          <span class="sr-label">每日字数目标<span class="sr-sub">统计页显示进度</span></span>
+          <input type="text" inputmode="numeric" id="st-goal" value="${s.dailyGoal || 2000}" style="flex:0 0 88px;text-align:right">
+        </div>
+        <div class="set-row">
+          <span class="sr-label">书架排序</span>
+          <select id="st-sort">
+            <option value="update" ${(s.bookSort || 'update') === 'update' ? 'selected' : ''}>最近更新</option>
+            <option value="name" ${s.bookSort === 'name' ? 'selected' : ''}>书名</option>
+            <option value="words" ${s.bookSort === 'words' ? 'selected' : ''}>字数</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <span class="sr-label">应用锁<span class="sr-sub">${s.lockCode ? '已开启，启动需密码' : '未开启'}</span></span>
+          <button class="chip ${s.lockCode ? 'active' : ''}" id="st-lock">${s.lockCode ? '修改' : '设置'}</button>
+        </div>
+      </div>
+
       <div class="set-group">
         <div class="set-group-title">外观</div>
         <div class="set-row">
@@ -759,6 +873,19 @@
         <div class="set-row"><span class="sr-label">白泽写作</span><span class="set-val">v${window.Update.versionName}</span></div>
       </div>
     `;
+
+    $('st-goal').addEventListener('change', e => {
+      const v = parseInt(e.target.value, 10);
+      DB.setSetting('dailyGoal', (!v || v < 100) ? 2000 : v);
+      e.target.value = DB.settings().dailyGoal;
+      toast('目标已更新');
+    });
+    $('st-sort').addEventListener('change', e => {
+      DB.setSetting('bookSort', e.target.value);
+      renderShelf();
+      toast('排序已更新');
+    });
+    $('st-lock').addEventListener('click', setLockFlow);
 
     $('st-theme').addEventListener('click', () => {
       const cur = DB.settings().theme;
@@ -884,4 +1011,5 @@
   });
 
   boot();
+  checkLock();
 })();

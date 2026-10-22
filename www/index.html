@@ -36,6 +36,9 @@
 <div id="view-shelf" class="view active">
   <header class="topbar">
     <h1>书架</h1>
+    <button class="icon-btn" id="btn-tools" title="创作工具">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9l-4.3 3.9 1.2 5.7L12 15.7 7.6 18.6l1.2-5.7L4.5 9l5.6-1.4L12 2z"/></svg>
+    </button>
     <button class="icon-btn" id="btn-stats" title="统计">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M5 20V10h3v10H5zm5.5 0V4h3v16h-3zM16 20v-7h3v7h-3z"/></svg>
     </button>
@@ -79,6 +82,7 @@
   </header>
   <div class="ed-meta">
     <span id="ed-words">0 字</span>
+    <span id="ed-speed" class="ed-speed"></span>
     <span id="ed-status" class="saved">已保存</span>
   </div>
   <div id="voice-hint" class="voice-hint hidden">
@@ -87,9 +91,11 @@
   </div>
   <textarea id="ed-text" class="ed-text" placeholder="开始写作…" spellcheck="false"></textarea>
   <div class="ed-footer">
-    <button id="ed-tool-history" class="tool-btn">🕘 历史</button>
-    <button id="ed-tool-type" class="tool-btn">Aa 排版</button>
-    <button id="ed-tool-reading" class="tool-btn">👁 阅读</button>
+    <button id="ed-tool-history" class="tool-btn">历史</button>
+    <button id="ed-tool-find" class="tool-btn">查找</button>
+    <button id="ed-tool-quick" class="tool-btn">快捷</button>
+    <button id="ed-tool-type" class="tool-btn">排版</button>
+    <button id="ed-tool-reading" class="tool-btn">阅读</button>
   </div>
 </div>
 
@@ -109,6 +115,7 @@
       <h3>写作记录</h3>
       <div id="stat-list" class="stat-list"></div>
     </div>
+    <button class="report-entry" id="btn-annual">查看年度报告 →</button>
   </div>
 </div>
 
@@ -133,6 +140,7 @@
 <script src="js/db.js"></script>
 <script src="js/voice.js"></script>
 <script src="js/update.js"></script>
+<script src="js/tools.js"></script>
 <script src="js/ui.js"></script>
 </body>
 </html>

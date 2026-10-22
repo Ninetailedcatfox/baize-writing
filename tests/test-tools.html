@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>tools 自检</title></head>
+<body>
+<div id="host"></div>
+<pre id="out">pending</pre>
+
+<script src="../www/js/tools.js"></script>
+<script>
+(function () {
+  const log = [];
+  let pass = 0, fail = 0;
+  function ok(name, cond, extra) {
+    if (cond) { pass++; log.push('PASS  ' + name); }
+    else { fail++; log.push('FAIL  ' + name + (extra ? '  -> ' + extra : '')); }
+  }
+
+  // mock UI
+  window.UI = {
+    openSheet(title, html) { document.getElementById('host').innerHTML = html; },
+    closeSheet() {},
+    show() {},
+    esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); },
+    fmtWords(n) { return String(n); },
+    toast() {},
+  };
+  window.DB = { stats: () => [], all: () => [] };
+
+  // 1. 起名器:每个分类都要能出 12 个不重复的名字
+  const cats = ['人物', '门派', '装备', '功法', '地名', '怪物', '丹药'];
+  window.Tools.openNameGen();
+  const chips = [...document.querySelectorAll('.ng-cats .chip')];
+  ok('起名器有 7 个分类', chips.length === 7, 'got=' + chips.length);
+
+  cats.forEach((label, i) => {
+    chips[i].click();
+    const items = [...document.querySelectorAll('.ng-item')];
+    const vals = items.map(b => b.dataset.v);
+    const uniq = new Set(vals);
+    ok(`${label} 生成 12 个`, items.length === 12, 'got=' + items.length);
+    ok(`${label} 无重复`, uniq.size === vals.length, 'uniq=' + uniq.size);
+    ok(`${label} 无空值/undefined`, vals.every(v => v && v.length >= 2 && !v.includes('undefined')),
+       vals.slice(0, 3).join(','));
+    ok(`${label} 长度合理`, vals.every(v => v.length <= 8), 'max=' + Math.max(...vals.map(v => v.length)));
+  });
+
+  // 2. 换一批应产生不同结果
+  const before = [...document.querySelectorAll('.ng-item')].map(b => b.dataset.v).join('|');
+  document.getElementById('ng-again').click();
+  const after = [...document.querySelectorAll('.ng-item')].map(b => b.dataset.v).join('|');
+  ok('换一批会变', before !== after);
+
+  // 3. 年度报告:空数据不应崩
+  let crashed = false;
+  try { window.Tools.openAnnualReport(); } catch (e) { crashed = true; log.push('  err: ' + e.message); }
+  ok('年度报告空数据不崩', !crashed);
+  ok('年度报告渲染出 .report', !!document.querySelector('#host .report'));
+  ok('年度报告有 6 个数据格', document.querySelectorAll('#host .rp-cell').length === 6,
+     'got=' + document.querySelectorAll('#host .rp-cell').length);
+
+  document.getElementById('out').textContent =
+    `pass=${pass} fail=${fail}\n\n` + log.join('\n');
+})();
+</script>
+</body>
+</html>

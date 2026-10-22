@@ -20,6 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
 NODES = {
+    "v22": ("bnI8MP4XL4KeakZXYeghSZ", "白泽写作v2.2下载二维码.png", "apk_url_v22.txt", "download-card-v22.png", "白泽写作 v2.2.0"),
     "v21": ("93LslQ80o8jcG1LsPioqtt", "白泽写作v2.1下载二维码.png", "apk_url_v21.txt", "download-card-v21.png", "白泽写作 v2.1.0"),
     "v2": ("2hNl2R72EWV6fePjQUfsQj", "白泽写作v2下载二维码.png", "apk_url_v2.txt", "download-card-v2.png", "白泽写作 v2.0.0"),
     "v1": ("T8HopoU1McCG5phDV7f2xs", "白泽写作下载二维码.png", "apk_url.txt", "download-qr.png", "白泽写作 v1.0.0"),
@@ -49,7 +50,7 @@ def verify(url):
 
 
 def main():
-    key = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in NODES else "v21"
+    key = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in NODES else "v22"
     node, card_name, url_name, card_file, title = NODES[key]
 
     print("[1/3] 取直链 ...")
