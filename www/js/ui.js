@@ -53,25 +53,45 @@
 
   function confirmBox(msg) { return window.confirm(msg); }
 
-  /* 封面色:仿布面精装书。中饱和、中明度,色相拉开,相邻不撞 */
+  /* 封面色:近白纸底 + 一条彩色书脊。
+   *
+   * 为什么不是整块彩色:浅底 + 中饱和(明度 60 左右)是最难看的一档 ——
+   * 不够素雅也不够有设计感,活像便利贴。整块深色又发闷(白字压不住深色,只能一路压暗)。
+   * 所以把颜色从"整块"挪到"书脊那一条":底色接近白(明度 90~93,深字对比 13.6~14.7,
+   * 怎么都读得清),色相身份由 9px 的书脊色带承担 —— 真实书架就是这个样子。
+   *
+   * ★ 数组按色相升序 —— 防撞色靠"索引顺延"换色系,乱序的话顺延一位还是同一个色。
+   */
   const COVER_COLORS = [
-    'linear-gradient(155deg,#2f7f74,#1d5a53)',  // 青
-    'linear-gradient(155deg,#3d6aa8,#2a4a7d)',  // 蓝
-    'linear-gradient(155deg,#6b56a0,#4a3a75)',  // 紫
-    'linear-gradient(155deg,#b06a45,#844a2f)',  // 赭橙
-    'linear-gradient(155deg,#4a8a5c,#2f6142)',  // 绿
-    'linear-gradient(155deg,#a85060,#7a3644)',  // 绛红
-    'linear-gradient(155deg,#a08a45,#75622e)',  // 金橄榄
-    'linear-gradient(155deg,#4a6a70,#304a50)',  // 蓝灰
-    'linear-gradient(155deg,#8a5a86,#603c5e)',  // 紫红
-    'linear-gradient(155deg,#3f7a8a,#2a5563)',  // 湖蓝
-    'linear-gradient(155deg,#7d5a4a,#54392c)',  // 咖啡
-    'linear-gradient(155deg,#5a6a8a,#3a4660)',  // 雾蓝
+    'linear-gradient(158deg,#eedcd8,#ead1cc)',  // 胭脂 H10  深字12.5
+    'linear-gradient(158deg,#eee5d8,#eadecc)',  // 陶土 H35  深字13.2
+    'linear-gradient(158deg,#edeed8,#e9eacc)',  // 麦金 H62  深字14.0
+    'linear-gradient(158deg,#dfeed8,#d6eacc)',  // 橄榄 H100 深字13.6
+    'linear-gradient(158deg,#d8eede,#ccead4)',  // 苔绿 H135 深字13.5
+    'linear-gradient(158deg,#d8eee8,#cceae3)',  // 青瓷 H165 深字13.6
+    'linear-gradient(158deg,#d8e8ee,#cce3ea)',  // 石板 H195 深字13.1
+    'linear-gradient(158deg,#d8deee,#ccd4ea)',  // 雾蓝 H225 深字12.2
+    'linear-gradient(158deg,#ded8ee,#d4ccea)',  // 靛青 H255 深字11.9
+    'linear-gradient(158deg,#e8d8ee,#e3ccea)',  // 灰紫 H285 深字12.2
+    'linear-gradient(158deg,#eed8e8,#eacce3)',  // 藕紫 H315 深字12.3
+    'linear-gradient(158deg,#eed8df,#eaccd5)',  // 紫灰 H342 深字12.2
+  ];
+  /* 书脊色带:与底色同色相,饱和 52 / 明度 50,9px 细条上正好压得住白底 */
+  const SPINE_COLORS = [
+    '#c2533d', '#c28b3d', '#bdc23d', '#69c23d', '#3dc25e', '#3dc2a1',
+    '#3da1c2', '#3d5ec2', '#5e3dc2', '#a13dc2', '#c23da1', '#c23d65',
   ];
   function coverIndex(book) {
     let h = 0;
     for (const c of (book.id || '')) h = (h * 31 + c.charCodeAt(0)) % 997;
     return h % COVER_COLORS.length;
+  }
+  /* 色板按色相升序,所以"索引距离"就是"色相距离"的代理。
+   * 只判重索引不够 —— 相邻索引也是相近色系,要一起避开。 */
+  function hueGap(a, b) {
+    const n = COVER_COLORS.length;
+    const d = Math.abs(a - b) % n;
+    return Math.min(d, n - d);
   }
 
   /* 长按
@@ -190,20 +210,24 @@
       grid.innerHTML = `<div class="empty" style="grid-column:1/-1">书架空空如也<br>点右下角 ＋ 创建第一本书</div>`;
       return;
     }
-    /* 同一屏内尽量不要出现重复封面色(用最近 4 本做窗口),冲突就顺延 */
+    /* 同一屏内不要出现同色系封面(最近 4 本做窗口)。
+     * 判定用色相距离 >= 3 档(约 90°),而不是"索引不相同" ——
+     * 2 档(60°)试过不够:粉紫 H315 和蓝紫 H255 隔着 2 档,肉眼还是"两本紫书"。 */
     const recent = [];
     grid.innerHTML = books.map(b => {
       const words = DB.bookWords(b.id);
       const chs = DB.bookChapters(b.id).length;
       let ci = coverIndex(b);
       let guard = 0;
-      while (recent.indexOf(ci) >= 0 && guard < COVER_COLORS.length) { ci = (ci + 1) % COVER_COLORS.length; guard++; }
+      while (recent.some(r => hueGap(r, ci) < 3) && guard < COVER_COLORS.length) {
+        ci = (ci + 1) % COVER_COLORS.length; guard++;
+      }
       recent.push(ci);
       if (recent.length > 4) recent.shift();
       const hasImg = !!b.cover;
       const coverStyle = hasImg
         ? `background-image:url(${b.cover});background-size:cover;background-position:center;background-color:#2a3a36`
-        : `background:${COVER_COLORS[ci]}`;
+        : `background:${COVER_COLORS[ci]};--spine:${SPINE_COLORS[ci]}`;
       return `
         <div class="book-card" data-bid="${b.id}">
           <div class="book-cover${hasImg ? ' has-img' : ''}" style="${coverStyle}">

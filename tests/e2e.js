@@ -119,6 +119,20 @@ function ok(name, cond, extra) {
   ok('3 本书封面都有底色', arr.length === 3 && arr.every(s => s && s !== 'none'), arr);
   ok('3 本书封面互不同色', new Set(arr).size === 3, arr);
 
+  // 书脊色带:颜色身份靠它,不能缺,也不能相邻撞
+  const spines = JSON.parse(await ev(
+    "JSON.stringify([...document.querySelectorAll('.book-cover')].map(e=>e.style.getPropertyValue('--spine').trim()))") || '[]');
+  ok('每本书都注入了书脊色', spines.length === 3 && spines.every(s => /^#[0-9a-f]{6}$/i.test(s)), spines);
+  ok('3 本书书脊色互不相同', new Set(spines).size === 3, spines);
+  // 封面底色必须是浅色(深底白字那一版就是因为太暗被否掉的)
+  const light = JSON.parse(await ev(`JSON.stringify([...document.querySelectorAll('.book-cover')].map(function(e){
+    var m = getComputedStyle(e).backgroundImage.match(/rgba?\\(([^)]+)\\)/);
+    if (!m) return -1;
+    var p = m[1].split(',').map(Number);
+    return Math.round((p[0]*0.2126 + p[1]*0.7152 + p[2]*0.0722) / 2.55);
+  }))`) || '[]');
+  ok('封面底色是浅色(亮度>80)', light.length === 3 && light.every(v => v > 80), light);
+
   // ---- 搜索 ----
   await ev("document.querySelector('#btn-search').click()");
   await wait(300);
