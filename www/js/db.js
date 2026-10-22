@@ -12,11 +12,15 @@
   const K = {
     group: 'group', book: 'book', volume: 'volume',
     article: 'article', history: 'history', recycle: 'recycle',
-    stat: 'stat', settings: 'settings', meta: 'meta',
+    stat: 'stat', note: 'note', settings: 'settings', meta: 'meta',
   };
 
-  const TABLES = ['group', 'book', 'volume', 'article', 'history', 'recycle', 'stat'];
+  const TABLES = ['group', 'book', 'volume', 'article', 'history', 'recycle', 'stat', 'note'];
   const KVS = ['settings', 'meta'];
+
+  /* 加表必须同时升版本号,否则老用户升级后新表不会被创建 */
+  const DB_VERSION = 2;
+  const DB_NAME = 'baize_writing';
 
   /* ---------------- 存储层 ----------------
    * 内存缓存 + IndexedDB 落盘。
@@ -41,7 +45,7 @@
       // 某些 WebView / 无头环境里 open 可能既不成功也不失败,必须兜底
       const timer = setTimeout(() => done(rej, new Error('idb open timeout')), 3000);
       let req;
-      try { req = indexedDB.open('baize_writing', 1); } catch (e) { return done(rej, e); }
+      try { req = indexedDB.open(DB_NAME, DB_VERSION); } catch (e) { return done(rej, e); }
       req.onupgradeneeded = ev => {
         const db = ev.target.result;
         TABLES.forEach(t => {
@@ -217,8 +221,48 @@
     return cn + en;
   }
 
+  /* ---------------- 智能排版 ----------------
+   * 纯函数,方便单测。逐项可开关。
+   * opts: trimTail 去行尾空格 / blankLine 段落空行 / indent 首行缩进两字
+   *       punct 成对标点 / cjkSpace 中英文间加空格
+   */
+  const IDENT = '\u3000\u3000'; // 两个全角空格 = 缩进两字
+
+  function formatText(src, opts) {
+    const o = Object.assign({ trimTail: true, blankLine: true, indent: false, punct: true, cjkSpace: false }, opts || {});
+    let t = String(src == null ? '' : src).replace(/\r\n?/g, '\n');
+
+    if (o.trimTail) t = t.split('\n').map(l => l.replace(/[ \t\u3000]+$/, '')).join('\n');
+
+    if (o.punct) {
+      // 半角双引号成对转中文引号(奇偶交替),单引号同理
+      let dq = 0, sq = 0;
+      t = t.replace(/"/g, () => (dq++ % 2 === 0 ? '\u201c' : '\u201d'));
+      t = t.replace(/'/g, () => (sq++ % 2 === 0 ? '\u2018' : '\u2019'));
+      // 中文语境里误用的半角标点 → 全角(只在紧邻汉字时替换,不动英文和数字)
+      t = t.replace(/([\u4e00-\u9fff])[ \t]*,[ \t]*/g, '$1，')
+           .replace(/([\u4e00-\u9fff])[ \t]*\.[ \t]*(?![0-9])/g, '$1。')
+           .replace(/([\u4e00-\u9fff])[ \t]*;[ \t]*/g, '$1；')
+           .replace(/([\u4e00-\u9fff])[ \t]*:[ \t]*/g, '$1：')
+           .replace(/([\u4e00-\u9fff])[ \t]*\?[ \t]*/g, '$1？')
+           .replace(/([\u4e00-\u9fff])[ \t]*![ \t]*/g, '$1！');
+    }
+
+    if (o.cjkSpace) {
+      t = t.replace(/([\u4e00-\u9fff])([A-Za-z0-9])/g, '$1 $2')
+           .replace(/([A-Za-z0-9])([\u4e00-\u9fff])/g, '$1 $2');
+    }
+
+    // 段落整理:统一按空行分段
+    let paras = t.split(/\n+/).map(p => p.trim()).filter(p => p.length);
+    if (o.indent) paras = paras.map(p => IDENT + p.replace(/^[\u3000\s]+/, ''));
+
+    t = paras.join(o.blankLine ? '\n\n' : '\n');
+    return t;
+  }
+
   const DB = {
-    uid, countWords, ready, flush,
+    uid, countWords, ready, flush, formatText,
     /* 同步健康状态,便于自检/排查(不需 await) */
     get health() { return { loaded, engine: idb ? 'IndexedDB' : 'localStorage' }; },
 
@@ -270,6 +314,49 @@
     },
     bookChapters(bookId) { return this.all('article').filter(a => a.bookId === bookId); },
 
+    /* ---------- 写作辅助:大纲 / 角色 / 灵感 ----------
+     * kind: 'outline'(每本一条) | 'char'(多条) | 'idea'(多条)
+     */
+    notes(bookId, kind) {
+      return this.all('note')
+        .filter(n => n.bookId === bookId && (!kind || n.kind === kind))
+        .sort((a, b) => (b.updateTime || 0) - (a.updateTime || 0));
+    },
+    outline(bookId) {
+      return this.all('note').find(n => n.bookId === bookId && n.kind === 'outline') || null;
+    },
+    saveOutline(bookId, text) {
+      const cur = this.outline(bookId);
+      if (cur) { this.put('note', { id: cur.id, text, updateTime: now() }); return cur.id; }
+      const n = { id: uid(), bookId, kind: 'outline', title: '', text, createTime: now(), updateTime: now() };
+      this.put('note', n);
+      return n.id;
+    },
+    addNote(bookId, kind, title, text) {
+      const n = { id: uid(), bookId, kind, title: title || '', text: text || '', createTime: now(), updateTime: now() };
+      this.put('note', n);
+      return n;
+    },
+    /* 章节整体上移/下移(同书内交换 seq) */
+    moveArticle(articleId, dir) {
+      const a = this.get('article', articleId);
+      if (!a) return false;
+      const list = this.bookChapters(a.bookId).sort((x, y) => (x.seq || 0) - (y.seq || 0));
+      const i = list.findIndex(x => x.id === articleId);
+      const j = i + (dir === 'up' ? -1 : 1);
+      if (j < 0 || j >= list.length) return false;
+      const other = list[j];
+      const sa = a.seq, sb = other.seq;
+      this.put('article', { id: a.id, seq: sb });
+      this.put('article', { id: other.id, seq: sa });
+      return true;
+    },
+    /* 章节重排:把 seq 归一化成 0..n-1,防止历史数据错乱 */
+    normalizeSeq(bookId) {
+      const list = this.bookChapters(bookId).sort((x, y) => (x.seq || 0) - (y.seq || 0));
+      list.forEach((a, i) => { if (a.seq !== i) this.put('article', { id: a.id, seq: i }); });
+    },
+
     /* ---------- 卷 ---------- */
     volumes(bookId) {
       return this.all('volume').filter(v => v.bookId === bookId).sort((a, b) => a.seq - b.seq);
@@ -319,10 +406,11 @@
     history(articleId) {
       return this.all('history').filter(h => h.articleId === articleId).sort((a, b) => b.createTime - a.createTime);
     },
-    pushHistory(article) {
+    /* force = true 时跳过节流。智能排版这类"整章重写"必须留快照,否则撤不回去 */
+    pushHistory(article, force) {
       if (!article) return false;
       const mine = this.history(article.id);
-      if (mine.length && now() - mine[0].createTime < this.HISTORY_INTERVAL) return false;
+      if (!force && mine.length && now() - mine[0].createTime < this.HISTORY_INTERVAL) return false;
       if (mine.length && mine[0].text === article.text) return false;
       const h = {
         id: uid(), articleId: article.id, text: article.text,

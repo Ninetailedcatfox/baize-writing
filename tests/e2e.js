@@ -188,6 +188,73 @@ function ok(name, cond, extra) {
   const after = await ev("DB.all('article').length");
   ok('重载后章节数不变', before === after && before === 6, { before, after });
 
+  // ---- 写作辅助:大纲 / 角色 / 灵感 ----
+  await ev("document.querySelector('.book-card').click()");
+  await wait(500);
+  await ev("document.querySelector('#btn-cat-more').click()");
+  await wait(400);
+  ok('书籍菜单有作品大纲', await ev("!!document.querySelector('#sheet-body [data-act=outline]')"));
+  ok('书籍菜单有角色设定', await ev("!!document.querySelector('#sheet-body [data-act=char]')"));
+  ok('书籍菜单有灵感记录', await ev("!!document.querySelector('#sheet-body [data-act=idea]')"));
+
+  await ev("document.querySelector('#sheet-body [data-act=outline]').click()");
+  await wait(500);
+  ok('打开大纲页', await ev("document.getElementById('view-notes').classList.contains('active')"));
+  ok('大纲页显示书名', /《测试书/.test(await ev("document.getElementById('notes-book').textContent") || ''));
+
+  await ev("(function(){document.getElementById('outline-text').value='一、开局\\n二、转折';document.getElementById('outline-save').click();return 1})()");
+  await wait(300);
+  ok('大纲保存成功', await ev("DB.outline(DB.books()[0].id).text") === '一、开局\n二、转折');
+
+  await ev("document.querySelector('[data-kind=char]').click()");
+  await wait(400);
+  ok('大纲 tab 隐藏新建按钮', await ev("document.getElementById('btn-notes-add').classList.contains('hidden')") === false);
+
+  await ev("document.querySelector('#btn-notes-add').click()");
+  await wait(400);
+  await ev("(function(){document.getElementById('note-title').value='沈青';document.getElementById('note-text').value='主角';document.getElementById('note-save').click();return 1})()");
+  await wait(400);
+  ok('新增角色后出现卡片', await ev("document.querySelectorAll('.note-card').length") === 1);
+  ok('角色卡片显示名字', /沈青/.test(await ev("document.querySelector('.nc-title').textContent") || ''));
+
+  await ev("document.querySelector('[data-kind=idea]').click()");
+  await wait(400);
+  ok('切到灵感是空状态', await ev("!!document.querySelector('.notes-scroll .empty')"));
+
+  await ev("document.querySelector('#btn-notes-back').click()");
+  await wait(500);
+  ok('从大纲页返回目录', await ev("document.getElementById('view-catalog').classList.contains('active')"));
+
+  // ---- 智能排版(走 UI) ----
+  await ev("document.querySelector('.chap-item').click()");
+  await wait(700);
+  await ev("(function(){const t=document.getElementById('ed-text');t.value='他来了,然后走了。\\n\\n\\n\\n第二段   ';return 1})()");
+  await ev("document.querySelector('#ed-tool-type').click()");
+  await wait(500);
+  ok('排版面板有全部整理', await ev("!!document.querySelector('[data-fmt=all]')"));
+  await ev("document.querySelector('[data-fmt=all]').click()");
+  await wait(2200);   // 等自动保存(1.5s 防抖)真正落库
+  const fmted = await ev("document.getElementById('ed-text').value");
+  ok('智能排版:空行收成一个', fmted.indexOf('\n\n\n') < 0, fmted);
+  ok('智能排版:首行缩进', fmted.indexOf('\u3000\u3000他来了') === 0, JSON.stringify(fmted));
+  ok('智能排版:中文逗号转全角', /，/.test(fmted), fmted);
+  ok('智能排版:行尾空格清掉', !/ {2,}$/m.test(fmted), JSON.stringify(fmted));
+  const histN = await ev("(function(){const a=DB.all('article').find(a=>a.text&&a.text.indexOf('第二段')>=0);return a?DB.history(a.id).length:-1})()");
+  ok('排版前原文进了历史', histN >= 1, histN);
+
+  // ---- 目录正序/倒序 ----
+  await ev("document.querySelector('#btn-ed-back').click()");
+  await wait(500);
+  const names0 = await ev("JSON.stringify([...document.querySelectorAll('.chap-name')].map(e=>e.textContent))");
+  await ev("document.querySelector('#btn-cat-sort').click()");
+  await wait(500);
+  const names1 = await ev("JSON.stringify([...document.querySelectorAll('.chap-name')].map(e=>e.textContent))");
+  ok('切换倒序后顺序真的反了', JSON.stringify(JSON.parse(names0).slice().reverse()) === names1, { names0, names1 });
+  await ev("document.querySelector('#btn-cat-sort').click()");
+  await wait(400);
+  const names2 = await ev("JSON.stringify([...document.querySelectorAll('.chap-name')].map(e=>e.textContent))");
+  ok('再切回正序恢复原样', names0 === names2, { names0, names2 });
+
   try { edge.kill(); } catch (e) { }
   server.close();
 

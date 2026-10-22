@@ -388,6 +388,64 @@ button { border: 0; background: none; cursor: pointer; }
 }
 .tool-btn:active { background: var(--bg-soft); transform: scale(.97); }
 
+/* ============ 写作辅助:大纲 / 角色 / 灵感 ============ */
+.notes-tabs {
+  display: flex; gap: 6px; padding: 2px 16px 10px;
+}
+.ntab {
+  flex: 1; padding: 9px 0; border-radius: 11px;
+  font-size: 13px; color: var(--ink-2); font-weight: 500;
+  background: var(--bg-elev); border: 1px solid var(--line);
+  transition: all .16s;
+}
+.ntab.active {
+  background: var(--brand-soft); color: var(--brand);
+  border-color: rgba(23, 135, 109, .35); font-weight: 600;
+}
+.ntab:active { transform: scale(.97); }
+
+.notes-scroll { flex: 1; overflow-y: auto; padding: 2px 16px calc(var(--safe-bottom) + 30px); }
+
+.note-card {
+  background: var(--bg-elev); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: 14px 15px; margin-bottom: 10px;
+  box-shadow: var(--sh-1);
+}
+.note-card:active { background: var(--bg-soft); }
+.nc-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; }
+.nc-title {
+  font-family: var(--font-serif);
+  font-size: 15px; font-weight: 600; letter-spacing: .4px;
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nc-time { flex: 0 0 auto; font-size: 10.5px; color: var(--ink-3); }
+.nc-text {
+  font-size: 13px; line-height: 1.85; color: var(--ink-2);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+  overflow: hidden; white-space: pre-wrap; word-break: break-word;
+}
+.nc-tag {
+  display: inline-block; font-size: 10.5px; padding: 2px 8px; border-radius: 999px;
+  background: var(--brand-soft); color: var(--brand); margin-right: 6px;
+}
+.note-editor {
+  width: 100%; min-height: 44vh; resize: none;
+  background: var(--bg-elev); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: 14px 15px;
+  font-family: var(--font-serif); font-size: 15px; line-height: 1.95;
+  color: var(--ink); outline: 0;
+}
+.note-title-input {
+  width: 100%; padding: 11px 14px; margin-bottom: 10px;
+  background: var(--bg-elev); border: 1px solid var(--line);
+  border-radius: var(--r-md); font-size: 15px; font-weight: 600; outline: 0;
+}
+.note-actions { display: flex; gap: 10px; margin-top: 12px; }
+.note-actions button { flex: 1; padding: 12px 0; border-radius: 12px; font-size: 14px; font-weight: 500; }
+.note-actions .na-primary { background: var(--brand); color: #fff; }
+.note-actions .na-ghost { background: var(--bg-elev); border: 1px solid var(--line); color: var(--ink-2); }
+
 /* ============ 统计 ============ */
 .stats-scroll { flex: 1; overflow-y: auto; padding: 6px 16px calc(var(--safe-bottom) + 30px); }
 

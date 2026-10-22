@@ -61,6 +61,65 @@
   const hist = DB.history(a0.id);
   ok('历史快照上限 20', hist.length <= 20, 'got=' + hist.length);
 
+  /* ---------------- 智能排版 ---------------- */
+  const F = DB.formatText;
+  ok('排版:连续空行收成一个', F('第一段\n\n\n\n第二段', { blankLine: true }) === '第一段\n\n第二段',
+    JSON.stringify(F('第一段\n\n\n\n第二段', { blankLine: true })));
+  ok('排版:单换行也分段', F('第一段\n第二段', { blankLine: true }) === '第一段\n\n第二段',
+    JSON.stringify(F('第一段\n第二段', { blankLine: true })));
+  ok('排版:首行缩进两字', F('他走了。', { indent: true }) === '\u3000\u3000他走了。',
+    JSON.stringify(F('他走了。', { indent: true })));
+  ok('排版:缩进不重复叠加', F('\u3000\u3000他走了。', { indent: true }) === '\u3000\u3000他走了。',
+    JSON.stringify(F('\u3000\u3000他走了。', { indent: true })));
+  ok('排版:行尾空格清掉', F('他走了。   \n第二段  ', { trimTail: true, blankLine: true }) === '他走了。\n\n第二段',
+    JSON.stringify(F('他走了。   \n第二段  ', { trimTail: true, blankLine: true })));
+  ok('排版:半角引号成对转中文', F('他说"走吧"然后走了', { punct: true }) === '他说\u201c走吧\u201d然后走了',
+    JSON.stringify(F('他说"走吧"然后走了', { punct: true })));
+  ok('排版:中文逗号转全角', F('他来了,然后走了', { punct: true }) === '他来了，然后走了',
+    JSON.stringify(F('他来了,然后走了', { punct: true })));
+  ok('排版:英文逗号不动', F('hello, world', { punct: true, cjkSpace: false }) === 'hello, world',
+    JSON.stringify(F('hello, world', { punct: true })));
+  ok('排版:中英文加空格', F('用iPhone拍照', { cjkSpace: true }) === '用 iPhone 拍照',
+    JSON.stringify(F('用iPhone拍照', { cjkSpace: true })));
+  ok('排版:空串不炸', F('') === '' && F(null) === '');
+  ok('排版:全角空格不算字数', DB.countWords('\u3000\u3000他走了。') === 3, DB.countWords('\u3000\u3000他走了。'));
+  ok('排版:幂等(跑两次结果一样)', (function () {
+    const once = F('第一段\n\n\n第二段   \n"引用"', { blankLine: true, indent: true, punct: true, trimTail: true });
+    const twice = F(once, { blankLine: true, indent: true, punct: true, trimTail: true });
+    return once === twice;
+  })());
+
+  /* ---------------- 写作辅助 ---------------- */
+  const b2 = DB.addBook('辅助测试书');
+  ok('大纲:初始为空', DB.outline(b2.id) === null);
+  const oid = DB.saveOutline(b2.id, '一、开局');
+  ok('大纲:保存成功', !!DB.outline(b2.id) && DB.outline(b2.id).text === '一、开局');
+  DB.saveOutline(b2.id, '一、开局\n二、转折');
+  ok('大纲:同书只留一条', DB.notes(b2.id, 'outline').length === 1, DB.notes(b2.id, 'outline').length);
+  ok('大纲:内容被更新', DB.outline(b2.id).text === '一、开局\n二、转折');
+
+  const c1 = DB.addNote(b2.id, 'char', '沈青', '主角,二十三岁');
+  DB.addNote(b2.id, 'char', '老周', '配角,开杂货铺');
+  DB.addNote(b2.id, 'idea', '', '雨夜的灯');
+  ok('角色:两条', DB.notes(b2.id, 'char').length === 2);
+  ok('灵感:一条', DB.notes(b2.id, 'idea').length === 1);
+  ok('辅助记录按书隔离', DB.notes(b.id, 'char').length === 0);
+  DB.del('note', c1.id);
+  ok('角色:可删除', DB.notes(b2.id, 'char').length === 1);
+
+  /* ---------------- 章节排序 ---------------- */
+  const mb = DB.addBook('排序测试书');
+  const m1 = DB.addArticle(mb.id, '', 'A');
+  const m2 = DB.addArticle(mb.id, '', 'B');
+  const m3 = DB.addArticle(mb.id, '', 'C');
+  DB.normalizeSeq(mb.id);
+  ok('排序:初始顺序 ABC', DB.bookChapters(mb.id).sort((x, y) => x.seq - y.seq).map(x => x.name).join('') === 'ABC');
+  DB.moveArticle(m3.id, 'up');
+  ok('排序:C 上移到中间', DB.bookChapters(mb.id).sort((x, y) => x.seq - y.seq).map(x => x.name).join('') === 'ACB');
+  DB.moveArticle(m1.id, 'up');
+  ok('排序:第一章再上移无效', DB.bookChapters(mb.id).sort((x, y) => x.seq - y.seq).map(x => x.name).join('') === 'ACB');
+  ok('排序:上移返回 false', DB.moveArticle(m1.id, 'up') === false);
+
   document.getElementById('out').textContent = `pass=${pass} fail=${fail}\n\n` + log.join('\n');
 })().catch(e => {
   document.getElementById('out').textContent = 'CRASH: ' + e.message + '\n' + e.stack;

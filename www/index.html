@@ -73,6 +73,9 @@
       <h2 id="cat-book-name">书名</h2>
       <span id="cat-book-meta">0 字 · 0 章</span>
     </div>
+    <button class="icon-btn" id="btn-cat-sort" title="目录顺序">
+      <svg viewBox="0 0 24 24" width="21" height="21" fill="currentColor"><path d="M4 6h10v2H4V6zm0 5h7v2H4v-2zm0 5h4v2H4v-2zM18 5l4 4h-2.5v8h-3V9H14l4-4z"/></svg>
+    </button>
     <button class="icon-btn" id="btn-cat-more">⋯</button>
   </header>
   <div class="cat-scroll">
@@ -109,6 +112,24 @@
     <button id="ed-tool-type" class="tool-btn">排版</button>
     <button id="ed-tool-reading" class="tool-btn">阅读</button>
   </div>
+</div>
+
+<!-- ===================== 写作辅助(大纲/角色/灵感) ===================== -->
+<div id="view-notes" class="view">
+  <header class="topbar">
+    <button class="icon-btn" id="btn-notes-back">←</button>
+    <div class="title-block">
+      <h2 id="notes-title">作品大纲</h2>
+      <span id="notes-book">—</span>
+    </div>
+    <button class="icon-btn" id="btn-notes-add" title="新建">＋</button>
+  </header>
+  <div class="notes-tabs" id="notes-tabs">
+    <button class="ntab active" data-kind="outline">大纲</button>
+    <button class="ntab" data-kind="char">角色</button>
+    <button class="ntab" data-kind="idea">灵感</button>
+  </div>
+  <div class="notes-scroll" id="notes-body"></div>
 </div>
 
 <!-- ===================== 统计 ===================== -->

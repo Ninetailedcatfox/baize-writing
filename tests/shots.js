@@ -184,6 +184,33 @@ const SEED = `
   await new Promise(r => setTimeout(r, 700));
   await shot('09-immersive');
 
+  // 写作辅助:大纲 / 角色
+  await ev("document.querySelector('#btn-exit-immersive').click()");
+  await new Promise(r => setTimeout(r, 400));
+  await ev("document.querySelector('#btn-ed-back').click()");
+  await new Promise(r => setTimeout(r, 500));
+  await ev("document.querySelector('#btn-cat-more').click()");
+  await new Promise(r => setTimeout(r, 500));
+  await shot('10-cat-menu');
+  await ev("[...document.querySelectorAll('#sheet-body .sheet-item')].find(e=>e.dataset.act==='outline').click()");
+  await new Promise(r => setTimeout(r, 600));
+  await ev("(function(){const t=document.getElementById('outline-text');t.value='一、雨夜来客\\n\\n主角在旧宅里等到天亮,门外站着三年前离开的人。\\n\\n二、旧照片\\n\\n照片背面那行字,是全书的钥匙。';return 1})()");
+  await new Promise(r => setTimeout(r, 300));
+  await shot('11-outline');
+
+  await ev("document.querySelector('[data-kind=char]').click()");
+  await new Promise(r => setTimeout(r, 400));
+  // 走真实 UI:点 + 填表保存
+  await ev("document.querySelector('#btn-notes-add').click()");
+  await new Promise(r => setTimeout(r, 400));
+  await ev("(function(){document.getElementById('note-title').value='沈青';document.getElementById('note-text').value='主角。二十三岁,在城南开一家修表铺。左手小指有旧伤,下雨天会疼。\\n\\n说话慢,习惯先听完再开口。';document.getElementById('note-save').click();return 1})()");
+  await new Promise(r => setTimeout(r, 400));
+  await ev("document.querySelector('#btn-notes-add').click()");
+  await new Promise(r => setTimeout(r, 300));
+  await ev("(function(){document.getElementById('note-title').value='老周';document.getElementById('note-text').value='配角。开杂货铺,消息灵通,收旧钟表。';document.getElementById('note-save').click();return 1})()");
+  await new Promise(r => setTimeout(r, 500));
+  await shot('12-chars');
+
   if (logs.length) { console.log('--- console ---'); logs.slice(0, 20).forEach(l => console.log('  ' + l)); }
 
   try { edge.kill(); } catch (e) { }

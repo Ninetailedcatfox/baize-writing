@@ -345,7 +345,8 @@
   function renderCatalog() {
     const b = DB.get('book', curBookId);
     if (!b) return;
-    const chapters = DB.bookChapters(curBookId).sort((x, y) => x.seq - y.seq);
+    const desc = (DB.settings().catOrder || 'asc') === 'desc';
+    const chapters = DB.bookChapters(curBookId).sort((x, y) => (x.seq || 0) - (y.seq || 0));
     $('cat-book-meta').textContent = `${fmtWords(DB.bookWords(curBookId))}字 · ${chapters.length}章`;
 
     const vols = DB.volumes(curBookId);
@@ -356,7 +357,8 @@
       if (!list.length) {
         return `<div class="empty" style="padding:26px 20px;font-size:13px">这一卷还没有章节</div>`;
       }
-      return list.map(c => {
+      const view = desc ? list.slice().reverse() : list;
+      return view.map(c => {
         idx++;
         return `
           <div class="chap-item" data-aid="${c.id}">
@@ -415,11 +417,18 @@
     if (!v) return;
     openSheet(v.name, `
       <div class="sheet-item" data-act="rename"><span class="si-icon">✏️</span>重命名卷</div>
+      <div class="sheet-item" data-act="export"><span class="si-icon">📤</span>导出本卷 TXT</div>
       <div class="sheet-item danger" data-act="del"><span class="si-icon">🗑</span>删除卷(章节移到未分卷)</div>
     `);
     $('sheet-body').querySelectorAll('.sheet-item').forEach(it => {
       it.addEventListener('click', () => {
         const act = it.dataset.act; closeSheet();
+        if (act === 'export') {
+          const list = DB.articles(curBookId).filter(c => c.volumeId === vid).sort((a, b) => a.seq - b.seq);
+          if (!list.length) { toast('这一卷还是空的'); return; }
+          downloadText(`${v.name}.txt`, list.map(c => `${c.name}\n\n${c.text || ''}`).join('\n\n\n'));
+          return;
+        }
         if (act === 'rename') {
           const n = prompt('新卷名:', v.name);
           if (n && n.trim()) { DB.put('volume', { id: vid, name: n.trim() }); renderCatalog(); }
@@ -467,6 +476,8 @@
     if (!a) return;
     openSheet(a.name, `
       <div class="sheet-item" data-act="rename"><span class="si-icon">✏️</span>重命名</div>
+      <div class="sheet-item" data-act="up"><span class="si-icon">↑</span>上移一位</div>
+      <div class="sheet-item" data-act="down"><span class="si-icon">↓</span>下移一位</div>
       <div class="sheet-item" data-act="move"><span class="si-icon">📁</span>移到其他卷</div>
       <div class="sheet-item" data-act="export"><span class="si-icon">📤</span>导出本章 TXT</div>
       <div class="sheet-item danger" data-act="del"><span class="si-icon">🗑</span>删除(进回收站)</div>
@@ -477,6 +488,10 @@
         if (act === 'rename') {
           const n = prompt('新章节名:', a.name);
           if (n && n.trim()) { DB.put('article', { id: aid, name: n.trim() }); renderCatalog(); }
+        } else if (act === 'up' || act === 'down') {
+          DB.normalizeSeq(curBookId);
+          if (DB.moveArticle(aid, act)) renderCatalog();
+          else toast(act === 'up' ? '已经是第一章了' : '已经是最后一章了');
         } else if (act === 'move') {
           const vols = DB.volumes(curBookId);
           if (!vols.length) { toast('这本书还没有卷'); return; }
@@ -499,6 +514,9 @@
   $('btn-cat-back').addEventListener('click', () => { renderShelf(); show('view-shelf'); });
   $('btn-cat-more').addEventListener('click', () => {
     openSheet('书籍操作', `
+      <div class="sheet-item" data-act="outline"><span class="si-icon">📋</span>作品大纲</div>
+      <div class="sheet-item" data-act="char"><span class="si-icon">👤</span>角色设定</div>
+      <div class="sheet-item" data-act="idea"><span class="si-icon">💡</span>灵感记录</div>
       <div class="sheet-item" data-act="newvol"><span class="si-icon">📚</span>新建一卷</div>
       <div class="sheet-item" data-act="export"><span class="si-icon">📤</span>导出全书 TXT</div>
       <div class="sheet-item" data-act="rename"><span class="si-icon">✏️</span>重命名书籍</div>
@@ -506,6 +524,7 @@
     $('sheet-body').querySelectorAll('.sheet-item').forEach(it => {
       it.addEventListener('click', () => {
         const act = it.dataset.act; closeSheet();
+        if (act === 'outline' || act === 'char' || act === 'idea') { openNotes(act); return; }
         if (act === 'newvol') {
           const n = prompt('新卷名:', `第${DB.volumes(curBookId).length + 1}卷`);
           if (n && n.trim()) { DB.addVolume(curBookId, n.trim()); renderCatalog(); }
@@ -518,6 +537,117 @@
       });
     });
   });
+
+  /* 目录正序 / 倒序 */
+  $('btn-cat-sort').addEventListener('click', () => {
+    const cur = DB.settings().catOrder || 'asc';
+    const next = cur === 'asc' ? 'desc' : 'asc';
+    DB.setSetting('catOrder', next);
+    renderCatalog();
+    toast(next === 'desc' ? '目录:最新章在前' : '目录:从第一章开始');
+  });
+
+  /* ================= 写作辅助:大纲 / 角色 / 灵感 ================= */
+  let noteKind = 'outline';
+  const KIND_NAME = { outline: '作品大纲', char: '角色设定', idea: '灵感记录' };
+  const KIND_EMPTY = {
+    outline: '把整本书的骨架写在这儿:主线、转折、结局。<br>写正文前先理一遍,不容易写崩。',
+    char: '记下每个角色的名字、身份、性格、口头禅。<br>写到一半忘了设定,回来翻一眼。',
+    idea: '突然想到的句子、桥段、对话,先扔进来。<br>不马上记,转头就忘。',
+  };
+
+  function openNotes(kind) {
+    if (!curBookId) { toast('先从书架选一本书'); return; }
+    noteKind = kind || 'outline';
+    const b = DB.get('book', curBookId);
+    $('notes-book').textContent = b ? '《' + b.name + '》' : '';
+    $('notes-title').textContent = KIND_NAME[noteKind];
+    $('notes-tabs').querySelectorAll('.ntab').forEach(t =>
+      t.classList.toggle('active', t.dataset.kind === noteKind));
+    $('btn-notes-add').classList.toggle('hidden', noteKind === 'outline');
+    renderNotes();
+    show('view-notes');
+  }
+
+  function renderNotes() {
+    const box = $('notes-body');
+    if (noteKind === 'outline') {
+      const o = DB.outline(curBookId);
+      box.innerHTML = `
+        <textarea class="note-editor" id="outline-text" placeholder="一、开局&#10;主角在……&#10;&#10;二、转折&#10;……">${esc(o ? o.text : '')}</textarea>
+        <div class="note-actions">
+          <button class="na-primary" id="outline-save">保存大纲</button>
+        </div>`;
+      $('outline-save').addEventListener('click', () => {
+        DB.saveOutline(curBookId, $('outline-text').value);
+        toast('大纲已保存');
+      });
+      return;
+    }
+
+    const list = DB.notes(curBookId, noteKind);
+    if (!list.length) {
+      box.innerHTML = `<div class="empty">${KIND_EMPTY[noteKind]}</div>`;
+      return;
+    }
+    box.innerHTML = list.map(n => `
+      <div class="note-card" data-nid="${n.id}">
+        <div class="nc-head">
+          <span class="nc-title">${esc(n.title || (noteKind === 'idea' ? '灵感' : '未命名角色'))}</span>
+          <span class="nc-time">${agoText(n.updateTime)}</span>
+        </div>
+        <div class="nc-text">${esc(n.text || '')}</div>
+      </div>`).join('');
+
+    box.querySelectorAll('.note-card').forEach(el => {
+      el.addEventListener('click', () => editNote(el.dataset.nid));
+      bindLongPress(el, () => {
+        const n = DB.get('note', el.dataset.nid);
+        if (!n) return;
+        openSheet(n.title || '这条记录', `
+          <div class="sheet-item" data-act="edit"><span class="si-icon">✏️</span>编辑</div>
+          <div class="sheet-item danger" data-act="del"><span class="si-icon">🗑</span>删除</div>
+        `);
+        $('sheet-body').querySelectorAll('.sheet-item').forEach(it => {
+          it.addEventListener('click', () => {
+            closeSheet();
+            if (it.dataset.act === 'edit') editNote(n.id);
+            else if (confirmBox('删除这条记录?')) { DB.del('note', n.id); renderNotes(); toast('已删除'); }
+          });
+        });
+      });
+    });
+  }
+
+  function editNote(nid) {
+    const n = nid ? DB.get('note', nid) : null;
+    const isNew = !n;
+    const titleLabel = noteKind === 'char' ? '角色名' : '标题(可不填)';
+    $('notes-body').innerHTML = `
+      <input class="note-title-input" id="note-title" placeholder="${titleLabel}" value="${esc(n ? n.title : '')}">
+      <textarea class="note-editor" id="note-text" placeholder="写点什么…">${esc(n ? n.text : '')}</textarea>
+      <div class="note-actions">
+        <button class="na-ghost" id="note-cancel">取消</button>
+        <button class="na-primary" id="note-save">保存</button>
+      </div>`;
+    $('note-title').focus();
+    $('note-cancel').addEventListener('click', renderNotes);
+    $('note-save').addEventListener('click', () => {
+      const title = $('note-title').value.trim();
+      const text = $('note-text').value;
+      if (!title && !text.trim()) { toast('内容还是空的'); return; }
+      if (isNew) DB.addNote(curBookId, noteKind, title, text);
+      else DB.put('note', { id: n.id, title, text, updateTime: Date.now() });
+      renderNotes();
+      toast('已保存');
+    });
+  }
+
+  $('notes-tabs').querySelectorAll('.ntab').forEach(t => {
+    t.addEventListener('click', () => openNotes(t.dataset.kind));
+  });
+  $('btn-notes-add').addEventListener('click', () => editNote(null));
+  $('btn-notes-back').addEventListener('click', () => { renderCatalog(); show('view-catalog'); });
 
   /* ================= 编辑器 ================= */
   /* 正文字体预设:'' = 跟随主题衬线(默认,最有书卷气) */
@@ -704,7 +834,8 @@
         if (!h) return;
         if (confirmBox('用这个版本覆盖当前正文?当前内容会先存一份历史。')) {
           const cur = $('ed-text').value;
-          DB.pushHistory(Object.assign({}, curArticle, { text: cur, wordsNumText: DB.countWords(cur), createTime: 0 }));
+          // 恢复版本前必须先强制存下当前内容,否则这次覆盖就撤不回来了
+          DB.pushHistory(Object.assign({}, curArticle, { text: cur, wordsNumText: DB.countWords(cur) }), true);
           $('ed-text').value = h.text || '';
           closeSheet();
           doSave();
@@ -718,6 +849,15 @@
   $('ed-tool-type').addEventListener('click', () => {
     const s = DB.settings();
     openSheet('排版设置', `
+      <div class="set-row" style="flex-wrap:wrap;gap:8px">
+        <span class="sr-label" style="flex-basis:100%">智能排版<span class="sr-sub">一键整理本章格式,可先撤销</span></span>
+        <button class="chip" data-fmt="all">全部整理</button>
+        <button class="chip" data-fmt="blankLine">段落空行</button>
+        <button class="chip" data-fmt="indent">首行缩进</button>
+        <button class="chip" data-fmt="punct">成对标点</button>
+        <button class="chip" data-fmt="trimTail">去行尾空格</button>
+        <button class="chip" data-fmt="cjkSpace">中英文空格</button>
+      </div>
       <div class="set-row">
         <span class="sr-label">字号</span>
         <input type="range" id="tp-size" min="13" max="26" step="1" value="${s.fontSize}">
@@ -731,10 +871,8 @@
       <div class="set-row">
         <span class="sr-label">字体</span>
         <select id="tp-font">
-          <option value="">系统默认</option>
-          <option value="serif">宋体/衬线</option>
-          <option value="sans-serif">黑体/无衬线</option>
-          <option value="monospace">等宽</option>
+          ${[['serif', '宋体(推荐)'], ['sans', '黑体'], ['kai', '楷体'], ['mono', '等宽']]
+            .map(([k, n]) => `<option value="${k}" ${(s.fontFamily || 'serif') === k ? 'selected' : ''}>${n}</option>`).join('')}
         </select>
       </div>
       <div class="set-row" style="flex-wrap:wrap;gap:8px">
@@ -745,7 +883,6 @@
         }).join('')}
       </div>
     `);
-    $('tp-font').value = s.fontFamily || '';
     const apply = () => {
       const fs = +$('tp-size').value, lh = +$('tp-lh').value, ff = $('tp-font').value;
       $('tp-size-v').textContent = fs; $('tp-lh-v').textContent = lh;
@@ -755,6 +892,26 @@
     $('tp-size').addEventListener('input', apply);
     $('tp-lh').addEventListener('input', apply);
     $('tp-font').addEventListener('change', apply);
+
+    /* 智能排版 */
+    $('sheet-body').querySelectorAll('[data-fmt]').forEach(b => {
+      b.addEventListener('click', () => {
+        const ta = $('ed-text');
+        const before = ta.value;
+        const all = b.dataset.fmt === 'all';
+        const opts = all
+          ? { trimTail: true, blankLine: true, indent: true, punct: true, cjkSpace: false }
+          : { trimTail: false, blankLine: false, indent: false, punct: false, cjkSpace: false, [b.dataset.fmt]: true };
+        const after = DB.formatText(before, opts);
+        if (after === before) { toast('本章格式已经是干净的'); return; }
+        // 进历史,方便一键撤回(整章重写,必须强制留快照,不受节流限制)
+        DB.pushHistory(Object.assign({}, curArticle, { text: before, wordsNumText: DB.countWords(before) }), true);
+        ta.value = after;
+        scheduleSave();
+        closeSheet();
+        toast('排版完成,原文已存进历史版本', 2400);
+      });
+    });
     $('sheet-body').querySelectorAll('[data-bg]').forEach(b => {
       b.addEventListener('click', () => {
         DB.setSetting('bg', b.dataset.bg);
