@@ -4,11 +4,12 @@
   "description": "白泽写作 - 语音写作 App(Capacitor + Android)",
   "private": true,
   "scripts": {
-    "test": "node tests/run-page-test.js tests/selftest.html && node tests/run-page-test.js tests/test_db.html && node tests/run-page-test.js tests/test-tools.html && node tests/e2e.js",
+    "test": "node tests/run-page-test.js tests/selftest.html && node tests/run-page-test.js tests/test_db.html && node tests/run-page-test.js tests/test_migrate.html && node tests/run-page-test.js tests/test-tools.html && node tests/e2e.js",
     "test:db": "node tests/run-page-test.js tests/test_db.html",
     "test:tools": "node tests/run-page-test.js tests/test-tools.html",
     "test:e2e": "node tests/e2e.js",
-    "shots": "node tests/shots.js"
+    "shots": "node tests/shots.js",
+    "test:migrate": "node tests/run-page-test.js tests/test_migrate.html"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

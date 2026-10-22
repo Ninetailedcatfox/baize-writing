@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>库升级自检</title></head>
+<body>
+<pre id="out">pending</pre>
+<script>
+/* 验证 v2.4(DB 版本 1) -> v2.5(DB 版本 2) 的升级:
+ * 1. 先手工造一个 version 1 的旧库,塞进书和章节
+ * 2. 再加载 db.js(它会以 version 2 打开)
+ * 3. 断言:旧数据还在 + note 表被建出来 + 能正常写入新表
+ */
+(function () {
+  const log = [];
+  let pass = 0, fail = 0;
+  const ok = (n, c, x) => {
+    if (c) { pass++; log.push('PASS  ' + n); }
+    else { fail++; log.push('FAIL  ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x) : '')); }
+  };
+  const done = () => {
+    document.getElementById('out').textContent = `pass=${pass} fail=${fail}\n\n` + log.join('\n');
+  };
+  const crash = e => {
+    document.getElementById('out').textContent = 'CRASH: ' + (e && e.message) + '\n' + (e && e.stack);
+  };
+
+  const OLD_TABLES = ['group', 'book', 'volume', 'article', 'history', 'recycle', 'stat'];
+
+  function makeV1() {
+    return new Promise((res, rej) => {
+      const req = indexedDB.open('baize_writing', 1);
+      req.onupgradeneeded = ev => {
+        const db = ev.target.result;
+        OLD_TABLES.forEach(t => {
+          if (!db.objectStoreNames.contains(t)) db.createObjectStore(t, { keyPath: 'id' });
+        });
+        if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv', { keyPath: 'k' });
+      };
+      req.onerror = () => rej(req.error);
+      req.onsuccess = ev => {
+        const db = ev.target.result;
+        const tx = db.transaction(['book', 'article', 'kv'], 'readwrite');
+        tx.objectStore('book').put({ id: 'oldbook', name: '旧数据书', flag: 0, seq: 0 });
+        tx.objectStore('article').put({
+          id: 'oldart', bookId: 'oldbook', volumeId: '', name: '旧章节', type: 0,
+          brief: '旧正文', seq: 0, wordsNumText: 3, wordsNumAll: 3, text: '旧正文',
+        });
+        tx.objectStore('kv').put({ k: 'settings', v: { fontSize: 21, lineHeight: 2.2, dailyGoal: 3000 } });
+        tx.oncomplete = () => { db.close(); res(); };
+        tx.onerror = () => rej(tx.error);
+      };
+    });
+  }
+
+  function loadDb() {
+    return new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = '../www/js/db.js';
+      s.onload = res;
+      s.onerror = () => rej(new Error('db.js 加载失败'));
+      document.head.appendChild(s);
+    });
+  }
+
+  (async function () {
+    // 清掉可能存在的库,保证从干净状态开始
+    await new Promise(r => { const d = indexedDB.deleteDatabase('baize_writing'); d.onsuccess = d.onerror = d.onblocked = r; });
+
+    await makeV1();
+    log.push('  已造出 version 1 旧库(1 本书 / 1 章 / 设置)');
+
+    await loadDb();
+    const info = await Promise.race([
+      window.DB.ready,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('DB.ready 超时')), 8000)),
+    ]);
+    ok('升级后 DB.ready 正常 resolve', !!info);
+    ok('仍然走 IndexedDB', info && info.idb === true, info);
+
+    const DB = window.DB;
+    ok('旧书还在', !!DB.get('book', 'oldbook'));
+    ok('旧书书名没变', DB.get('book', 'oldbook').name === '旧数据书');
+    ok('旧章节还在', !!DB.get('article', 'oldart'));
+    ok('旧章节正文没变', DB.get('article', 'oldart').text === '旧正文');
+    ok('旧设置没丢(字号 21)', DB.settings().fontSize === 21, DB.settings().fontSize);
+    ok('旧设置没丢(目标 3000)', DB.settings().dailyGoal === 3000, DB.settings().dailyGoal);
+
+    // 新表必须能用
+    ok('note 表已建出来', Array.isArray(DB.all('note')));
+    const n = DB.addNote('oldbook', 'char', '新角色', '升级后才有的表');
+    ok('能往 note 表写', !!DB.get('note', n.id));
+    ok('能按书查到', DB.notes('oldbook', 'char').length === 1);
+
+    // 落盘后重开,确认新表真的在磁盘上(而不是只存在内存里)
+    await DB.flush();
+    const raw = await new Promise((res, rej) => {
+      const req = indexedDB.open('baize_writing');
+      req.onerror = () => rej(req.error);
+      req.onsuccess = ev => {
+        const db = ev.target.result;
+        res({ ver: db.version, stores: [...db.objectStoreNames] });
+        db.close();
+      };
+    });
+    ok('库版本升到 2', raw.ver === 2, raw.ver);
+    ok('note 在磁盘 store 列表里', raw.stores.indexOf('note') >= 0, raw.stores);
+    ok('旧的 7 张表都还在', OLD_TABLES.every(t => raw.stores.indexOf(t) >= 0), raw.stores);
+    ok('kv 表还在', raw.stores.indexOf('kv') >= 0, raw.stores);
+
+    done();
+  })().catch(crash);
+})();
+</script>
+</body>
+</html>
