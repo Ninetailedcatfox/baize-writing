@@ -20,6 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
 NODES = {
+    "250": ("6sExRRv3NBgk1L5wftYS2E", "白泽写作v2.5.0下载二维码.png", "apk_url_v250.txt", "download-card-v250.png", "白泽写作 v2.5.0"),
     "v23": ("sG5c8tnJWDfklf03NtlHi5", "白泽写作v2.3下载二维码.png", "apk_url_v23.txt", "download-card-v23.png", "白泽写作 v2.3.0"),
     "v22": ("bnI8MP4XL4KeakZXYeghSZ", "白泽写作v2.2下载二维码.png", "apk_url_v22.txt", "download-card-v22.png", "白泽写作 v2.2.0"),
     "v21": ("93LslQ80o8jcG1LsPioqtt", "白泽写作v2.1下载二维码.png", "apk_url_v21.txt", "download-card-v21.png", "白泽写作 v2.1.0"),

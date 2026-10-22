@@ -35,7 +35,7 @@ def center(text, y, font, fill):
 
 # 顶部标题区
 center(TITLE, PAD - 8, F_TITLE, "#111111")
-center("书架 · 卷 · 章节   输入法语音   写作统计", PAD + 62, F_SUB, "#666666")
+center("写作辅助 · 智能排版 · 沉浸写作 · 全文搜索", PAD + 62, F_SUB, "#666666")
 
 # 二维码
 qy = PAD + 120
