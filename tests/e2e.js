@@ -275,6 +275,102 @@ function ok(name, cond, extra) {
   const names2 = await ev("JSON.stringify([...document.querySelectorAll('.chap-name')].map(e=>e.textContent))");
   ok('再切回正序恢复原样', names0 === names2, { names0, names2 });
 
+  // ---- 封面裁切(2:2.9 居中裁) ----
+  const crop = JSON.parse(await ev(`(async function(){
+    function mk(w,h,c1){
+      const cv=document.createElement('canvas');cv.width=w;cv.height=h;
+      const x=cv.getContext('2d');
+      x.fillStyle=c1;x.fillRect(0,0,w/2,h);
+      x.fillStyle='#0000ff';x.fillRect(w/2,0,w/2,h);
+      return cv.toDataURL('image/png');
+    }
+    const out={};
+    for(const pair of [['wide',1000,500],['tall',400,1200]]){
+      const k=pair[0],w=pair[1],h=pair[2];
+      const url=await window.UI.cropCover(mk(w,h,'#ff0000'));
+      const img=await new Promise(function(r){const i=new Image();i.onload=function(){r(i)};i.src=url;});
+      const cv=document.createElement('canvas');cv.width=img.width;cv.height=img.height;
+      const x=cv.getContext('2d');x.drawImage(img,0,0);
+      const px=function(a,b){const d=x.getImageData(a,b,1,1).data;return [d[0],d[1],d[2]];};
+      out[k]={w:img.width,h:img.height,prefix:url.slice(0,23),
+              left:px(6,10),right:px(img.width-6,10)};
+    }
+    return JSON.stringify(out);
+  })()`));
+  ok('裁切输出 480 宽', crop.wide.w === 480 && crop.tall.w === 480, [crop.wide.w, crop.tall.w]);
+  ok('裁切输出高宽比 2:2.9', crop.wide.h === 696 && crop.tall.h === 696, [crop.wide.h, crop.tall.h]);
+  ok('裁切存成 jpeg', /^data:image\/jpeg/.test(crop.wide.prefix), crop.wide.prefix);
+  ok('宽图居中裁:左红右蓝', crop.wide.left[0] > 150 && crop.wide.right[2] > 150,
+     JSON.stringify([crop.wide.left, crop.wide.right]));
+  ok('高图居中裁:左红右蓝', crop.tall.left[0] > 150 && crop.tall.right[2] > 150,
+     JSON.stringify([crop.tall.left, crop.tall.right]));
+
+  // ---- AI 面板(不真发请求,只验 UI 与引导路径) ----
+  await ev("document.querySelector('.chap-item').click()");
+  await wait(700);
+  await ev("DB.setSetting('aiKey','')");
+  await ev("document.getElementById('ed-tool-ai').click()");
+  await wait(400);
+  ok('AI 面板能打开', await ev("!document.getElementById('sheet').classList.contains('hidden')"));
+  ok('AI 面板有四个模式', await ev("document.querySelectorAll('.ai-mode').length") === 4,
+     await ev("document.querySelectorAll('.ai-mode').length"));
+  ok('没配 key 时给出警告', await ev("!!document.querySelector('.ai-warn')"));
+  ok('没配 key 时按钮引导去设置', /去设置/.test(await ev("document.getElementById('ai-go').textContent") || ''),
+     await ev("document.getElementById('ai-go').textContent"));
+  ok('面板说明会带上什么上下文', /会带上/.test(await ev("document.getElementById('ai-hint').textContent") || ''));
+
+  await ev("document.getElementById('ai-go').click()");
+  await wait(600);
+  ok('点生成直接跳到设置页', await ev("document.getElementById('view-settings').classList.contains('active')"));
+  ok('设置页有 AI 分组', await ev("!!document.getElementById('set-ai')"));
+  ok('设置页有 Key 输入框', await ev("!!document.getElementById('st-ai-key')"));
+
+  await ev("document.getElementById('btn-set-back').click()");
+  await wait(400);
+  await ev("document.querySelector('.chap-item').click()");
+  await wait(600);
+  await ev("DB.setSetting('aiKey','sk-test')");
+  await ev("document.getElementById('ed-tool-ai').click()");
+  await wait(400);
+  ok('配好 key 后不再警告', await ev("!document.querySelector('.ai-warn')"));
+  ok('配好 key 后按钮变成开始生成',
+     /开始生成/.test(await ev("document.getElementById('ai-go').textContent") || ''),
+     await ev("document.getElementById('ai-go').textContent"));
+
+  await ev("document.querySelector('.ai-mode[data-mode=polish]').click()");
+  await wait(300);
+  ok('润色模式隐藏字数档', await ev("getComputedStyle(document.getElementById('ai-lens')).display") === 'none');
+  ok('没选文字时润色给出提示',
+     /先在正文里选中/.test(await ev("document.getElementById('ai-hint').textContent") || ''),
+     await ev("document.getElementById('ai-hint').textContent"));
+
+  // 打桩模型,验证「生成 → 插入正文」这条主路径(不发真实请求)
+  await ev("document.querySelector('.ai-mode[data-mode=expand]').click()");
+  await wait(250);
+  await ev(`window.AI.generate = async function(ctx, onDelta){
+    if (onDelta) { onDelta('她把橘子'); onDelta('一颗颗捡回来。'); }
+    return '她把橘子一颗颗捡回来。';
+  };`);
+  await ev("document.getElementById('ai-input').value='她把水果都扔了'");
+  const lenBefore = await ev("document.getElementById('ed-text').value.length");
+  await ev("document.getElementById('ai-go').click()");
+  await wait(900);
+  ok('生成后输出区有内容', /捡回来/.test(await ev("document.getElementById('ai-out').value") || ''),
+     await ev("document.getElementById('ai-out').value"));
+  ok('生成后出现插入按钮', await ev("!document.getElementById('ai-bar').classList.contains('hidden')"));
+  ok('状态显示完成字数', /生成完成/.test(await ev("document.getElementById('ai-status').textContent") || ''),
+     await ev("document.getElementById('ai-status').textContent"));
+
+  await ev("document.getElementById('ai-apply').click()");
+  await wait(500);
+  const lenAfter = await ev("document.getElementById('ed-text').value.length");
+  ok('插入后正文变长', lenAfter > lenBefore, { lenBefore, lenAfter });
+  ok('插入后正文含生成内容', /捡回来/.test(await ev("document.getElementById('ed-text').value") || ''));
+  ok('插入后面板自动关闭', await ev("document.getElementById('sheet').classList.contains('hidden')"));
+
+  await ev("document.querySelector('#sheet-mask').click()");
+  await wait(300);
+
   try { edge.kill(); } catch (e) { }
   server.close();
 

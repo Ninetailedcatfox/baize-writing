@@ -23,8 +23,8 @@ LIB = r"C:/Program Files/WorkBuddyAI/resources/app.asar.unpacked/resources/plugi
 PY = sys.executable
 DL = os.path.join(HERE, "dl")
 
-VERSION = "2.5.0"
-CODE = 7
+VERSION = "2.6.0"
+CODE = 8
 
 
 def run(args, cwd=None, quiet=False):

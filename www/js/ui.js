@@ -48,8 +48,8 @@
   }
   $('sheet-mask').addEventListener('click', closeSheet);
 
-  /* 供 tools.js 复用 */
-  window.UI = { openSheet, closeSheet, show, esc, fmtWords, toast };
+  /* 供 tools.js 复用;cropCover 一并导出,便于端到端测裁切比例 */
+  window.UI = { openSheet, closeSheet, show, esc, fmtWords, toast, cropCover };
 
   function confirmBox(msg) { return window.confirm(msg); }
 
@@ -124,6 +124,61 @@
     toast('分组已创建');
   }
 
+  /* ---------------- 封面选图 ----------------
+   * 手机相册选一张,居中裁成书封比例(2 : 2.9),缩到 480 宽存 JPEG。
+   * 不存原图:一张手机照片 3~5MB,几十本书就能把存储撑爆。
+   */
+  function cropCover(dataUrl) {
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        const TW = 480, TH = Math.round(TW * 2.9 / 2);
+        const cv = document.createElement('canvas');
+        cv.width = TW; cv.height = TH;
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, TW, TH);
+        const tAR = TW / TH;
+        const sAR = (img.width || 1) / (img.height || 1);
+        let sw, sh, sx, sy;
+        if (sAR > tAR) { sh = img.height; sw = sh * tAR; sx = (img.width - sw) / 2; sy = 0; }
+        else { sw = img.width; sh = sw / tAR; sx = 0; sy = (img.height - sh) / 2; }
+        try {
+          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, TW, TH);
+          res(cv.toDataURL('image/jpeg', 0.82));
+        } catch (e) { rej(e); }
+      };
+      img.onerror = () => rej(new Error('这张图读不出来'));
+      img.src = dataUrl;
+    });
+  }
+
+  function pickCover(bid) {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/*';
+    inp.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0';
+    document.body.appendChild(inp);
+    inp.addEventListener('change', () => {
+      const f = inp.files && inp.files[0];
+      setTimeout(() => inp.remove(), 100);
+      if (!f) return;
+      if (f.size > 20 * 1048576) { toast('图片太大了,换一张小点的'); return; }
+      toast('正在处理图片…');
+      const fr = new FileReader();
+      fr.onload = () => {
+        cropCover(fr.result).then(dataUrl => {
+          DB.put('book', { id: bid, cover: dataUrl, updateTime: Date.now() });
+          renderShelf(); renderResume();
+          toast('封面已换好');
+        }).catch(e => toast('处理失败:' + e.message));
+      };
+      fr.onerror = () => toast('读不出这个文件');
+      fr.readAsDataURL(f);
+    });
+    inp.click();
+  }
+
   function renderShelf() {
     let books = DB.books(curGroupId || null).filter(b => !b.flag);
     const sortBy = DB.settings().bookSort || 'update';
@@ -144,9 +199,13 @@
       while (recent.indexOf(ci) >= 0 && guard < COVER_COLORS.length) { ci = (ci + 1) % COVER_COLORS.length; guard++; }
       recent.push(ci);
       if (recent.length > 4) recent.shift();
+      const hasImg = !!b.cover;
+      const coverStyle = hasImg
+        ? `background-image:url(${b.cover});background-size:cover;background-position:center;background-color:#2a3a36`
+        : `background:${COVER_COLORS[ci]}`;
       return `
         <div class="book-card" data-bid="${b.id}">
-          <div class="book-cover" style="background:${COVER_COLORS[ci]}">
+          <div class="book-cover${hasImg ? ' has-img' : ''}" style="${coverStyle}">
             <div class="bc-inner">
               <div class="bc-title">${esc(b.name)}</div>
               <div class="bc-rule"></div>
@@ -281,6 +340,8 @@
     const b = DB.get('book', bid);
     if (!b) return;
     openSheet(b.name, `
+      <div class="sheet-item" data-act="cover"><span class="si-icon">🖼</span>${b.cover ? '换一张封面' : '从相册选封面'}</div>
+      ${b.cover ? '<div class="sheet-item" data-act="cover-reset"><span class="si-icon">↩️</span>恢复默认封面</div>' : ''}
       <div class="sheet-item" data-act="rename"><span class="si-icon">✏️</span>重命名</div>
       <div class="sheet-item" data-act="move"><span class="si-icon">📁</span>移到分组</div>
       <div class="sheet-item" data-act="export"><span class="si-icon">📤</span>导出全书 TXT</div>
@@ -290,6 +351,12 @@
       it.addEventListener('click', () => {
         const act = it.dataset.act;
         closeSheet();
+        if (act === 'cover') { pickCover(bid); return; }
+        if (act === 'cover-reset') {
+          DB.put('book', { id: bid, cover: '' });
+          renderShelf(); toast('已恢复默认封面');
+          return;
+        }
         if (act === 'rename') {
           const n = prompt('新书名:', b.name);
           if (n && n.trim()) { DB.put('book', { id: bid, name: n.trim(), updateTime: Date.now() }); renderShelf(); }
@@ -660,6 +727,176 @@
   });
   $('btn-notes-add').addEventListener('click', () => editNote(null));
   $('btn-notes-back').addEventListener('click', () => { renderCatalog(); show('view-catalog'); });
+
+  /* ================= AI 扩写 / 续写 ================= */
+  const AI_MODE_HINT = {
+    expand: '写一句话,AI 会结合大纲、角色和上文把它铺成正文。',
+    continue: '顺着上文往下写。可以不填,留空就让它自然推进。',
+    polish: '把选中的文字润色一遍,保持原意和长度。',
+    describe: '给一个对象(比如"雨夜的巷口"),写一段具体的环境或细节。',
+  };
+  const AI_MODE_PH = {
+    expand: '比如:她把水果都扔了',
+    continue: '接下来要发生的事(可不填)',
+    polish: '选中的文字会作为原文,这里可补充要求',
+    describe: '比如:雨夜的巷口',
+  };
+
+  function openAI() {
+    if (!curArticle) return;
+    const ta = $('ed-text');
+    const selStart = ta.selectionStart || 0;
+    const selEnd = ta.selectionEnd || 0;
+    const sel = ta.value.slice(selStart, selEnd);
+    const before = window.AI.tail(ta.value.slice(0, selStart), 1600);
+
+    const o = DB.outline(curBookId);
+    const chars = DB.notes(curBookId, 'char');
+    const ctxInfo = [
+      before ? '上文 ' + before.length + ' 字' : '本章还没有上文',
+      o && o.text ? '大纲' : '',
+      chars.length ? '角色 ' + chars.length + ' 个' : '',
+    ].filter(Boolean).join(' · ');
+
+    const ready = window.AI.hasKey();
+
+    openSheet('AI 写作', `
+      ${ready ? '' : `<div class="ai-warn">还没配置模型。<br>去 设置 → AI 扩写 填上 Base URL 和 API Key(DeepSeek、通义、Kimi 都行),就能用了。</div>`}
+      <div class="ai-modes" id="ai-modes">
+        <button class="ai-mode active" data-mode="expand">扩写</button>
+        <button class="ai-mode" data-mode="continue">续写</button>
+        <button class="ai-mode" data-mode="polish">润色</button>
+        <button class="ai-mode" data-mode="describe">描写</button>
+      </div>
+      <div class="ai-hint" id="ai-hint">${AI_MODE_HINT.expand}<br>会带上:${ctxInfo || '本章内容'}</div>
+      <textarea class="ai-input" id="ai-input" placeholder="${AI_MODE_PH.expand}"></textarea>
+      <div class="ai-lens" id="ai-lens">
+        <button data-len="150">短 · 150字</button>
+        <button data-len="300" class="active">中 · 300字</button>
+        <button data-len="500">长 · 500字</button>
+      </div>
+      <button class="ai-go" id="ai-go">${ready ? '开始生成' : '去设置里配置'}</button>
+      <div class="ai-status" id="ai-status"></div>
+      <textarea class="ai-out" id="ai-out" placeholder=""></textarea>
+      <div class="ai-bar hidden" id="ai-bar">
+        <button class="ai-ghost" id="ai-retry">重新生成</button>
+        <button class="ai-primary" id="ai-apply">插入到正文</button>
+      </div>
+    `);
+
+    let mode = 'expand';
+    let len = 300;
+    let busy = false;
+
+    $('ai-modes').querySelectorAll('.ai-mode').forEach(b => {
+      b.addEventListener('click', () => {
+        mode = b.dataset.mode;
+        $('ai-modes').querySelectorAll('.ai-mode').forEach(x => x.classList.toggle('active', x === b));
+        $('ai-hint').innerHTML = AI_MODE_HINT[mode] + '<br>会带上:' + (ctxInfo || '本章内容');
+        $('ai-input').placeholder = AI_MODE_PH[mode];
+        $('ai-lens').style.display = (mode === 'polish') ? 'none' : '';
+        if (mode === 'polish' && sel) $('ai-input').value = '';
+        if (mode === 'polish' && !sel) $('ai-hint').innerHTML = '先在正文里选中要润色的文字,再点这里。';
+      });
+    });
+
+    $('ai-lens').querySelectorAll('button').forEach(b => {
+      b.addEventListener('click', () => {
+        len = +b.dataset.len;
+        $('ai-lens').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+      });
+    });
+
+    const setStatus = (html) => { $('ai-status').innerHTML = html; };
+
+    async function run() {
+      if (busy) return;
+      if (!window.AI.hasKey()) { toast('先去设置里填 API Key'); return; }
+      const instr = $('ai-input').value.trim();
+      if (mode === 'polish' && !sel) { toast('先在正文里选中要润色的文字'); return; }
+      if (mode !== 'polish' && !instr && mode !== 'continue') { toast('写点什么再生成'); return; }
+      if (mode === 'continue' && !before) { toast('本章还没有上文,没东西可续'); return; }
+
+      busy = true;
+      const btn = $('ai-go');
+      btn.disabled = true;
+      btn.textContent = '生成中…';
+      const out = $('ai-out');
+      out.value = '';
+      $('ai-bar').classList.add('hidden');
+      setStatus('<span class="dot"></span>正在生成…');
+
+      const ctx = {
+        bookName: (DB.get('book', curBookId) || {}).name || '',
+        chapterName: ($('ed-title').value || '').trim(),
+        outline: o ? o.text : '',
+        chars: chars,
+        before: before,
+        selection: sel,
+        instruction: instr,
+        length: len,
+        mode: mode,
+      };
+
+      try {
+        let got = '';
+        let firstIn = true;
+        const text = await window.AI.generate(ctx, delta => {
+          got += delta;
+          out.value = got;
+          out.scrollTop = out.scrollHeight;
+          if (firstIn) {
+            // 输出区第一次有内容才从 display:none 变可见,这时再滚才滚得到
+            firstIn = false;
+            try { out.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { }
+          }
+          setStatus('<span class="dot"></span>正在生成… ' + got.length + ' 字');
+        });
+        const finalText = (text && text.length >= got.length) ? text : got;
+        out.value = finalText;
+        if (!finalText.trim()) {
+          setStatus('模型没有返回内容,换个说法再试一次');
+        } else {
+          setStatus('生成完成 · ' + finalText.length + ' 字');
+          $('ai-bar').classList.remove('hidden');
+          $('ai-apply').textContent = sel ? '替换选中' : '插入到正文';
+          try { $('ai-bar').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { }
+        }
+      } catch (e) {
+        setStatus('失败:' + (e && e.message ? e.message : e));
+      } finally {
+        busy = false;
+        btn.disabled = false;
+        btn.textContent = '再生成一次';
+      }
+    }
+
+    $('ai-go').addEventListener('click', () => {
+      if (!window.AI.hasKey()) { closeSheet(); openSettings('ai'); return; }
+      run();
+    });
+    $('ai-retry').addEventListener('click', run);
+
+    $('ai-apply').addEventListener('click', () => {
+      const text = $('ai-out').value.trim();
+      if (!text) return;
+      const v = ta.value;
+      // 选区在打开面板时就被记下了,这里按当时的范围替换/插入
+      const s = Math.min(selStart, v.length);
+      const e = Math.min(Math.max(selEnd, selStart), v.length);
+      if (e > s) ta.value = v.slice(0, s) + text + v.slice(e);
+      else ta.value = v.slice(0, s) + (s > 0 && !/\n$/.test(v.slice(0, s)) ? '\n\n' : '') + text + v.slice(s);
+      const pos = s + text.length;
+      try { ta.setSelectionRange(pos, pos); } catch (err) { }
+      closeSheet();
+      trackSpeed();
+      scheduleSave();
+      updateEdMeta('编辑中…');
+      toast('已写入正文');
+    });
+  }
+
+  $('ed-tool-ai').addEventListener('click', openAI);
 
   /* ================= 编辑器 ================= */
   /* 正文字体预设:'' = 跟随主题衬线(默认,最有书卷气) */
@@ -1207,6 +1444,44 @@
         </div>
       </div>
 
+      <div class="set-group" id="set-ai">
+        <div class="set-group-title">AI 扩写</div>
+        <div class="set-row">
+          <span class="sr-label">服务商<span class="sr-sub">选一个会自动填好地址和模型</span></span>
+          <select id="st-ai-provider">
+            ${Object.keys(window.AI.PROVIDERS).map(k => {
+              const p = window.AI.PROVIDERS[k];
+              return `<option value="${k}" ${(s.aiProvider || 'deepseek') === k ? 'selected' : ''}>${p.name}</option>`;
+            }).join('')}
+          </select>
+        </div>
+        <div class="set-row col">
+          <span class="sr-label">Base URL<span class="sr-sub">接口根地址,末尾的 /chat/completions 会自动补</span></span>
+          <input type="text" id="st-ai-base" value="${esc(s.aiBaseUrl || '')}" placeholder="https://api.deepseek.com/v1">
+        </div>
+        <div class="set-row col">
+          <span class="sr-label">API Key<span class="sr-sub">只存在本机,不会上传</span></span>
+          <input type="password" id="st-ai-key" value="${esc(s.aiKey || '')}" placeholder="sk-...">
+        </div>
+        <div class="set-row col">
+          <span class="sr-label">模型<span class="sr-sub">填服务商文档里的模型名</span></span>
+          <input type="text" id="st-ai-model" value="${esc(s.aiModel || '')}" placeholder="deepseek-chat">
+        </div>
+        <div class="set-row">
+          <span class="sr-label">发散程度<span class="sr-sub">越高越有想象力,越低越稳</span></span>
+          <input type="range" id="st-ai-temp" min="0" max="1.5" step="0.1" value="${s.aiTemp === undefined ? 0.8 : s.aiTemp}">
+          <span class="set-val" id="st-ai-temp-v">${s.aiTemp === undefined ? 0.8 : s.aiTemp}</span>
+        </div>
+        <div class="set-row">
+          <span class="sr-label">边写边显示<span class="sr-sub">关掉则等整段生成完再出</span></span>
+          <button class="chip ${s.aiStream === false ? '' : 'active'}" id="st-ai-stream">${s.aiStream === false ? '已关闭' : '已开启'}</button>
+        </div>
+        <div class="set-row">
+          <span class="sr-label">连接测试<span class="sr-sub" id="st-ai-test-res">填完 Key 可以点一下</span></span>
+          <button id="st-ai-test" class="tool-btn" style="padding:6px 14px">测试</button>
+        </div>
+      </div>
+
       <div class="set-group">
         <div class="set-group-title">语音输入</div>
         <div class="set-row">
@@ -1303,6 +1578,47 @@
     $('st-lh').addEventListener('change', e => { DB.setSetting('lineHeight', +e.target.value); applyEditorStyle(); renderSettings(); });
     $('st-bg').addEventListener('change', e => { DB.setSetting('bg', e.target.value); applyEditorStyle(); });
     $('st-font').addEventListener('change', e => { DB.setSetting('fontFamily', e.target.value); applyEditorStyle(); });
+
+    /* ---- AI 扩写 ---- */
+    const AI = window.AI;
+    $('st-ai-provider').addEventListener('change', e => {
+      const p = AI.PROVIDERS[e.target.value];
+      DB.setSetting('aiProvider', e.target.value);
+      if (p && p.base) {
+        DB.setSetting('aiBaseUrl', p.base);
+        DB.setSetting('aiModel', p.model);
+        $('st-ai-base').value = p.base;
+        $('st-ai-model').value = p.model;
+      }
+    });
+    $('st-ai-base').addEventListener('change', e => DB.setSetting('aiBaseUrl', e.target.value.trim()));
+    $('st-ai-key').addEventListener('change', e => DB.setSetting('aiKey', e.target.value.trim()));
+    $('st-ai-model').addEventListener('change', e => DB.setSetting('aiModel', e.target.value.trim()));
+    $('st-ai-temp').addEventListener('input', e => {
+      $('st-ai-temp-v').textContent = e.target.value;
+      DB.setSetting('aiTemp', +e.target.value);
+    });
+    $('st-ai-stream').addEventListener('click', () => {
+      const on = DB.settings().aiStream !== false;
+      DB.setSetting('aiStream', !on);
+      $('st-ai-stream').classList.toggle('active', on);
+      $('st-ai-stream').textContent = on ? '已关闭' : '已开启';
+    });
+    $('st-ai-test').addEventListener('click', async () => {
+      const res = $('st-ai-test-res');
+      res.textContent = '测试中…';
+      try {
+        const txt = await AI.callLLM(
+          [{ role: 'user', content: '只回复两个字:可以' }],
+          { stream: false, maxTokens: 16, temperature: 0 }
+        );
+        res.textContent = '连通正常,模型回:' + (txt || '(空)').slice(0, 20);
+        toast('连接正常');
+      } catch (e) {
+        res.textContent = '失败:' + (e && e.message ? e.message : e);
+      }
+    });
+
     $('st-voice').addEventListener('change', e => { DB.setSetting('voiceMode', e.target.value); toast('已切换语音方式'); });
     $('st-voice-diag').addEventListener('click', async () => {
       const d = await window.Voice.diagnose();
@@ -1382,7 +1698,22 @@
     });
   }
 
-  $('btn-settings').addEventListener('click', () => { renderSettings(); show('view-settings'); });
+  /* focus: 'ai' 时滚到 AI 那一组,方便从 AI 面板直接跳过来配置 */
+  function openSettings(focus) {
+    renderSettings();
+    show('view-settings');
+    if (focus) {
+      setTimeout(() => {
+        const el = $('set-ai');
+        if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+        const k = $('st-ai-key');
+        if (k) k.focus();
+      }, 90);
+    }
+  }
+  window.UI.openSettings = openSettings;
+
+  $('btn-settings').addEventListener('click', () => openSettings());
   $('btn-set-back').addEventListener('click', () => { renderShelf(); show('view-shelf'); });
 
   /* ================= 启动 ================= */

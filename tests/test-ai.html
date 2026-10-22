@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>ai 自检</title></head>
+<body>
+<pre id="out">pending</pre>
+
+<script src="../www/js/ai.js"></script>
+<script>
+(function () {
+  const log = [];
+  let pass = 0, fail = 0;
+  function ok(name, cond, extra) {
+    if (cond) { pass++; log.push('PASS  ' + name); }
+    else { fail++; log.push('FAIL  ' + name + (extra !== undefined ? '  -> ' + extra : '')); }
+  }
+
+  // ---- mock 数据层 ----
+  let store = {};
+  window.DB = {
+    settings: () => store,
+    setSetting: (k, v) => { store[k] = v; },
+  };
+
+  const AI = window.AI;
+
+  /* ============ 1. endpoint 拼接 ============ */
+  ok('endpoint 普通 base', AI.endpoint('https://api.deepseek.com/v1') === 'https://api.deepseek.com/v1/chat/completions',
+     AI.endpoint('https://api.deepseek.com/v1'));
+  ok('endpoint 去尾斜杠', AI.endpoint('https://api.deepseek.com/v1/') === 'https://api.deepseek.com/v1/chat/completions',
+     AI.endpoint('https://api.deepseek.com/v1/'));
+  ok('endpoint 去多余斜杠', AI.endpoint('https://x.com/v1///') === 'https://x.com/v1/chat/completions',
+     AI.endpoint('https://x.com/v1///'));
+  ok('endpoint 已是完整地址不重复拼',
+     AI.endpoint('https://x.com/v1/chat/completions') === 'https://x.com/v1/chat/completions',
+     AI.endpoint('https://x.com/v1/chat/completions'));
+  ok('endpoint 空值返回空', AI.endpoint('') === '' && AI.endpoint(null) === '', AI.endpoint(null));
+  ok('endpoint 去首尾空格', AI.endpoint('  https://x.com/v1  ') === 'https://x.com/v1/chat/completions',
+     AI.endpoint('  https://x.com/v1  '));
+
+  /* ============ 2. clean 清洗 ============ */
+  ok('clean 去 ``` 围栏',
+     AI.clean('```\n她走了。\n```') === '她走了。', JSON.stringify(AI.clean('```\n她走了。\n```')));
+  ok('clean 去 ```markdown 围栏',
+     AI.clean('```markdown\n她走了。\n```') === '她走了。', JSON.stringify(AI.clean('```markdown\n她走了。\n```')));
+  ok('clean 去"好的,以下是"开场',
+     AI.clean('好的,以下是扩写内容:\n她走了。') === '她走了。', JSON.stringify(AI.clean('好的,以下是扩写内容:\n她走了。')));
+  ok('clean 去"以下是"开场',
+     AI.clean('以下是正文\n她走了。') === '她走了。', JSON.stringify(AI.clean('以下是正文\n她走了。')));
+  ok('clean 不动正常正文',
+     AI.clean('她走了。\n他没有回头。') === '她走了。\n他没有回头。', JSON.stringify(AI.clean('她走了。\n他没有回头。')));
+  ok('clean 处理 null/undefined', AI.clean(null) === '' && AI.clean(undefined) === '', AI.clean(null));
+  ok('clean 统一 CRLF', AI.clean('a\r\nb') === 'a\nb', JSON.stringify(AI.clean('a\r\nb')));
+
+  /* ============ 3. tail 取上文 ============ */
+  ok('tail 短文本原样', AI.tail('abc', 10) === 'abc', AI.tail('abc', 10));
+  ok('tail 长文本取结尾', AI.tail('0123456789', 4) === '6789', AI.tail('0123456789', 4));
+  ok('tail 空值安全', AI.tail(null, 4) === '' && AI.tail('', 4) === '', AI.tail(null, 4));
+
+  /* ============ 4. buildMessages 组装 ============ */
+  const base = {
+    bookName: '归墟',
+    chapterName: '第一章 落水',
+    outline: '女主被退婚,独自去海边。',
+    chars: [{ title: '林晚', text: '二十七岁,寡言,做瓷器修复。' }],
+    before: '她把最后一颗橘子丢进垃圾桶。',
+    instruction: '她把水果都扔了',
+    length: 300,
+    mode: 'expand',
+  };
+
+  const m = AI.buildMessages(base);
+  const user = m[1].content;
+  ok('返回 system + user 两条', m.length === 2 && m[0].role === 'system' && m[1].role === 'user', m.length);
+  ok('system 带"只输出正文"约束', m[0].content.indexOf('只输出正文') >= 0);
+  ok('含【作品】书名', user.indexOf('【作品】《归墟》') >= 0);
+  ok('含【本章】', user.indexOf('【本章】第一章 落水') >= 0);
+  ok('含【作品大纲】', user.indexOf('【作品大纲】') >= 0);
+  ok('含【主要角色】与角色名', user.indexOf('【主要角色】') >= 0 && user.indexOf('林晚') >= 0);
+  ok('含【上文】', user.indexOf('【上文】') >= 0 && user.indexOf('橘子') >= 0);
+  ok('扩写模式带用户那句话', user.indexOf('【要扩写的内容】她把水果都扔了') >= 0, user.slice(0, 80));
+  ok('扩写模式带字数要求', user.indexOf('约 300 字') >= 0);
+  ok('结尾带输出约束', user.trim().endsWith('【输出】直接给正文,不要任何前缀说明。'), user.slice(-40));
+
+  // 各模式任务描述不同
+  const c1 = AI.buildMessages(Object.assign({}, base, { mode: 'continue' }))[1].content;
+  const p1 = AI.buildMessages(Object.assign({}, base, { mode: 'polish', selection: '原文在此' }))[1].content;
+  const d1 = AI.buildMessages(Object.assign({}, base, { mode: 'describe' }))[1].content;
+  ok('续写模式任务措辞', c1.indexOf('顺着上文往下写') >= 0);
+  ok('续写模式带"接下来要发生的事"', c1.indexOf('【接下来要发生的事】') >= 0);
+  ok('润色模式带【原文】', p1.indexOf('【原文】') >= 0 && p1.indexOf('原文在此') >= 0);
+  ok('润色模式不带字数档', p1.indexOf('约 300 字') < 0, p1.slice(0, 60));
+  ok('描写模式任务措辞', d1.indexOf('环境或细节描写') >= 0);
+  ok('四种模式互相不同', new Set([user, c1, p1, d1]).size === 4);
+
+  /* ============ 5. 上下文截断方向 ============ */
+  const longOutline = '头' + '甲'.repeat(1500) + '尾';
+  const om = AI.buildMessages(Object.assign({}, base, { outline: longOutline }))[1].content;
+  ok('大纲超长时保留开头(不丢设定主干)', om.indexOf('头甲甲') >= 0, om.slice(om.indexOf('【作品大纲】'), om.indexOf('【作品大纲】') + 20));
+  ok('大纲超长时截掉结尾', om.indexOf('甲尾') < 0);
+
+  const longBefore = '开' + '乙'.repeat(3000) + '收';
+  const bm = AI.buildMessages(Object.assign({}, base, { before: longBefore }))[1].content;
+  ok('上文超长时保留结尾(最近的内容)', bm.indexOf('乙收') >= 0);
+  ok('上文超长时截掉开头', bm.indexOf('开乙') < 0);
+
+  /* ============ 6. 角色数量上限 ============ */
+  const manyChars = [];
+  for (let i = 0; i < 12; i++) manyChars.push({ title: '角色' + i, text: '设定' + i });
+  const cm = AI.buildMessages(Object.assign({}, base, { chars: manyChars }))[1].content;
+  ok('角色最多带 6 个', cm.indexOf('角色5') >= 0 && cm.indexOf('角色6') < 0);
+
+  /* ============ 7. 缺省值 ============ */
+  const em = AI.buildMessages({});
+  ok('空 ctx 不崩且给默认书名', em[1].content.indexOf('《未命名》') >= 0);
+  ok('空 ctx 无【本章】', em[1].content.indexOf('【本章】') < 0);
+  ok('空 ctx 无【上文】', em[1].content.indexOf('【上文】') < 0);
+  ok('空 ctx 默认扩写模式', em[1].content.indexOf('扩写') >= 0);
+
+  /* ============ 8. 服务商表 ============ */
+  const keys = Object.keys(AI.PROVIDERS);
+  ok('7 个服务商预设', keys.length === 7, keys.length);
+  ok('除自定义外都有 base 和 model',
+     keys.filter(k => k !== 'custom').every(k => AI.PROVIDERS[k].base && AI.PROVIDERS[k].model),
+     keys.filter(k => k !== 'custom' && (!AI.PROVIDERS[k].base || !AI.PROVIDERS[k].model)).join(','));
+  ok('每个服务商都有中文名', keys.every(k => AI.PROVIDERS[k].name && AI.PROVIDERS[k].name.length >= 2));
+
+  /* ============ 9. 设置读写 ============ */
+  const s0 = AI.settings();
+  ok('未配置时用默认 base', s0.aiBaseUrl === 'https://api.deepseek.com/v1', s0.aiBaseUrl);
+  ok('未配置时用默认模型', s0.aiModel === 'deepseek-chat', s0.aiModel);
+  ok('未配置时无 key', AI.hasKey() === false);
+  AI.setSetting('aiKey', 'sk-test-123');
+  ok('写入后 hasKey 为真', AI.hasKey() === true);
+  ok('写入后 settings 能读到', AI.settings().aiKey === 'sk-test-123', AI.settings().aiKey);
+  AI.setSetting('aiKey', '   ');
+  ok('空白 key 视为未配置', AI.hasKey() === false);
+  AI.setSetting('aiKey', '');
+
+  document.getElementById('out').textContent =
+    log.join('\n') + '\n\npass=' + pass + ' fail=' + fail;
+})();
+</script>
+</body>
+</html>

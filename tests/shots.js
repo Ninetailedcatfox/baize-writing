@@ -211,6 +211,53 @@ const SEED = `
   await new Promise(r => setTimeout(r, 500));
   await shot('12-chars');
 
+  // AI 面板(带上下文提示 + 四模式)
+  await ev("DB.setSetting('aiKey','sk-demo-1234567890')");
+  await ev("document.querySelector('.chap-item').click()");
+  await new Promise(r => setTimeout(r, 800));
+  await ev("(function(){const t=document.getElementById('ed-text');t.setSelectionRange(t.value.length,t.value.length);return 1})()");
+  await ev("document.querySelector('#ed-tool-ai').click()");
+  await new Promise(r => setTimeout(r, 700));
+  await ev("(function(){document.getElementById('ai-input').value='她把水果都扔了';return 1})()");
+  await new Promise(r => setTimeout(r, 300));
+  await shot('13-ai-panel');
+  await ev("UI.closeSheet()");
+  await new Promise(r => setTimeout(r, 300));
+
+  // 自定义封面:走真实裁切函数,写库后重载看效果
+  await ev("document.querySelector('#btn-ed-back').click()");
+  await new Promise(r => setTimeout(r, 500));
+  await ev("document.querySelector('#btn-cat-back').click()");
+  await new Promise(r => setTimeout(r, 600));
+  const coverOk = await ev(`(async function(){
+    const cv=document.createElement('canvas');cv.width=800;cv.height=1000;
+    const x=cv.getContext('2d');
+    const g=x.createLinearGradient(0,0,800,1000);
+    g.addColorStop(0,'#0e2a35');g.addColorStop(.45,'#2f7f74');g.addColorStop(1,'#123b4f');
+    x.fillStyle=g;x.fillRect(0,0,800,1000);
+    x.fillStyle='rgba(255,255,255,.82)';
+    x.beginPath();x.arc(540,300,130,0,Math.PI*2);x.fill();
+    x.fillStyle='rgba(14,42,53,.55)';
+    x.beginPath();x.moveTo(0,1000);x.lineTo(800,620);x.lineTo(800,1000);x.closePath();x.fill();
+    const url=await window.UI.cropCover(cv.toDataURL('image/png'));
+    const b=DB.books()[0];
+    DB.put('book',{id:b.id,cover:url});
+    await DB.flush();
+    return url.length>1000 ? 'ok:'+url.length : 'bad:'+url.length;
+  })()`);
+  console.log('cover =>', coverOk);
+  await ev("location.reload()");
+  await new Promise(r => setTimeout(r, 2800));
+  console.log('cover rendered =>', await ev("!!document.querySelector('.book-cover.has-img')"));
+  await shot('14-cover-shelf');
+
+  // 设置页 AI 分组
+  await ev("document.querySelector('#btn-settings').click()");
+  await new Promise(r => setTimeout(r, 700));
+  await ev("(function(){const el=document.getElementById('set-ai');if(el)el.scrollIntoView({block:'start'});return 1})()");
+  await new Promise(r => setTimeout(r, 500));
+  await shot('15-settings-ai');
+
   if (logs.length) { console.log('--- console ---'); logs.slice(0, 20).forEach(l => console.log('  ' + l)); }
 
   try { edge.kill(); } catch (e) { }

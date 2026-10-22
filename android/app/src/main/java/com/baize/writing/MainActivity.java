@@ -11,5 +11,6 @@ public class MainActivity extends BridgeActivity {
         // 否则插件不会被 Capacitor 收集,前端 Capacitor.Plugins.SpeechInput 为 undefined。
         super.onCreate(savedInstanceState);
         registerPlugin(SpeechInputPlugin.class);
+        registerPlugin(LlmPlugin.class);
     }
 }
